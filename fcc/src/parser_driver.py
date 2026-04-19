@@ -1,6 +1,7 @@
 from pathlib import Path
 import importlib.util
 import sys
+from pprint import pprint
 
 try:
     from antlr4 import FileStream, CommonTokenStream
@@ -15,7 +16,6 @@ except ModuleNotFoundError as exc:
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
 GENERATED_PATH = PROJECT_ROOT / "generated" / "fcc" / "grammar"
 
 
@@ -43,29 +43,60 @@ parser_module = load_generated_module("FCCParser")
 FCCLexer = lexer_module.FCCLexer
 FCCParser = parser_module.FCCParser
 
+from ast_builder import ASTBuilder
+
 
 class SyntaxErrorListener(ErrorListener):
-
     def __init__(self):
         super().__init__()
         self.has_error = False
 
+    def _format_message(self, offending_symbol, msg: str) -> str:
+        token_text = ""
+        if offending_symbol is not None and offending_symbol.text is not None:
+            token_text = offending_symbol.text
+
+        msg_lower = msg.lower()
+
+        if "missing ';'" in msg_lower:
+            return 'se esperaba ";" al final de la sentencia.'
+
+        if "missing '}'" in msg_lower:
+            return 'se esperaba "}" para cerrar el bloque.'
+
+        if "missing '{'" in msg_lower:
+            return 'se esperaba "{" para iniciar el bloque.'
+
+        if "missing ')'" in msg_lower:
+            return 'se esperaba ")" para cerrar la expresion o parametros.'
+
+        if "missing '('" in msg_lower:
+            return 'se esperaba "(" para iniciar la expresion o parametros.'
+
+        if "missing ']'" in msg_lower:
+            return 'se esperaba "]" para cerrar el acceso de arreglo.'
+
+        if "missing '['" in msg_lower:
+            return 'se esperaba "[" para iniciar el acceso de arreglo.'
+
+        if "extraneous input" in msg_lower:
+            return f'token inesperado "{token_text}".'
+
+        if "mismatched input" in msg_lower:
+            return f'sintaxis invalida cerca de "{token_text}".'
+
+        if "no viable alternative" in msg_lower:
+            return "expresion o estructura invalida."
+
+        return "estructura sintactica invalida."
+
     def syntaxError(self, recognizer, offendingSymbol, line, column, msg, e):
         self.has_error = True
-        print(
-            f"Error [sintactico] en linea {line}, columna {column}: {msg}"
-        )
+        formatted_msg = self._format_message(offendingSymbol, msg)
+        print(f"Error [sintactico] en linea {line}: {formatted_msg}")
 
 
-def main():
-
-    if len(sys.argv) != 2:
-        print("Uso:")
-        print("python fcc/src/parser_driver.py fcc/examples/prueba.f")
-        sys.exit(1)
-
-    input_path = Path(sys.argv[1])
-
+def parse_and_build_ast(input_path: Path):
     if not input_path.exists():
         print(f'Error: no existe el archivo "{input_path}".')
         sys.exit(1)
@@ -76,11 +107,9 @@ def main():
     token_stream = CommonTokenStream(lexer)
 
     parser = FCCParser(token_stream)
-
     parser.removeErrorListeners()
 
     error_listener = SyntaxErrorListener()
-
     parser.addErrorListener(error_listener)
 
     tree = parser.program()
@@ -88,9 +117,26 @@ def main():
     if error_listener.has_error:
         sys.exit(1)
 
-    print("\nAnalisis sintactico correcto\n")
+    builder = ASTBuilder()
+    ast = builder.visit(tree)
 
+    return parser, tree, ast
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("Uso: python fcc/src/parser_driver.py <archivo_fuente>")
+        sys.exit(1)
+
+    input_path = Path(sys.argv[1])
+
+    parser, tree, ast = parse_and_build_ast(input_path)
+
+    print("\nAnalisis sintactico correcto\n")
     print(tree.toStringTree(recog=parser))
+
+    print("\nAST construido correctamente:\n")
+    pprint(ast)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
-func int suma(int a, int b){
-    int x = a + b;
-    ret x;
+if (x < 5){
+    x = 1;
+else {
+    x = 2;
 }
