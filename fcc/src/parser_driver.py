@@ -44,12 +44,14 @@ FCCLexer = lexer_module.FCCLexer
 FCCParser = parser_module.FCCParser
 
 from ast_builder import ASTBuilder
+from lexer_driver import check_lexical_errors
 
 
 class SyntaxErrorListener(ErrorListener):
     def __init__(self):
         super().__init__()
         self.has_error = False
+        self._reported = False
 
     def _format_message(self, offending_symbol, msg: str) -> str:
         token_text = ""
@@ -80,9 +82,15 @@ class SyntaxErrorListener(ErrorListener):
             return 'se esperaba "[" para iniciar el acceso de arreglo.'
 
         if "extraneous input" in msg_lower:
+            if token_text == "else":
+                return 'se esperaba "}" para cerrar el bloque antes de "else".'
+            if token_text == "<EOF>":
+                return 'se esperaba "}" para cerrar el bloque.'
             return f'token inesperado "{token_text}".'
 
         if "mismatched input" in msg_lower:
+            if token_text == "<EOF>":
+                return "fin de archivo inesperado."
             return f'sintaxis invalida cerca de "{token_text}".'
 
         if "no viable alternative" in msg_lower:
@@ -91,7 +99,11 @@ class SyntaxErrorListener(ErrorListener):
         return "estructura sintactica invalida."
 
     def syntaxError(self, recognizer, offendingSymbol, line, column, msg, e):
+        if self._reported:
+            return
+
         self.has_error = True
+        self._reported = True
         formatted_msg = self._format_message(offendingSymbol, msg)
         print(f"Error [sintactico] en linea {line}: {formatted_msg}")
 
@@ -105,6 +117,10 @@ def parse_and_build_ast(input_path: Path):
 
     lexer = FCCLexer(input_stream)
     token_stream = CommonTokenStream(lexer)
+    token_stream.fill()
+
+    if check_lexical_errors(token_stream, lexer):
+        sys.exit(1)
 
     parser = FCCParser(token_stream)
     parser.removeErrorListeners()

@@ -6,6 +6,7 @@ FUNC      : 'func';
 RET       : 'ret';
 VOID      : 'void';
 INT       : 'int';
+FLOAT     : 'float';
 BOOL      : 'bool';
 CHAR      : 'char';
 IF        : 'if';
@@ -86,6 +87,14 @@ HEX_LITERAL
     : '0' [xX] [0-9a-fA-F]+ 
     ;
 
+INVALID_REAL_LITERAL
+    : [0-9]+ '.' [0-9]+ ('.' [0-9]+)+
+    ;
+
+REAL_LITERAL
+    : [0-9]+ '.' [0-9]+
+    ;
+
 INT_LITERAL
     : [0-9]+
     ;
@@ -134,13 +143,19 @@ LINE_COMMENT
 
 
 // 10. OPERADORES NO RECONOCIDOS
-
-fragment OPERATOR_CHAR
-    : [+\-*/%&|^!=<>~] 
-    ;
+// Solo marcamos secuencias que realmente no pertenecen al lenguaje.
+// Una regla generica con "dos o mas operadores" rompia casos validos
+// como 1+-2, que deben tokenizarse como PLUS seguido de MINUS.
 
 INVALID_OPERATOR
-    : OPERATOR_CHAR OPERATOR_CHAR+
+    : '++'
+    | '--'
+    | '&&'
+    | '||'
+    | '**'
+    | '//'
+    | '<<='
+    | '>>='
     ;
 
 

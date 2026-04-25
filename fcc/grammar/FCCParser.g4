@@ -61,6 +61,7 @@ typeRule
 
 baseType
     : INT
+    | FLOAT
     | BOOL
     | CHAR
     | VOID
@@ -173,32 +174,14 @@ forStmt
 forInitializer
     : varDeclNoSemi
     | assignment
-    | expression
-    |
     ;
 
 forIncrement
     : assignment
-    | expression
-    |
     ;
 
 forCondition
     : expression
-    |
-    ;
-
-forInit
-    : varDeclNoSemi
-    | assignment
-    | expression
-    |
-    ;
-
-forUpdate
-    : assignment
-    | expression
-    |
     ;
 
 varDeclNoSemi
@@ -265,12 +248,14 @@ argumentList
 
 primary
     : IDENTIFIER
+    | MAIN
     | literal
     | LPAREN expression RPAREN
     ;
 
 literal
     : INT_LITERAL
+    | REAL_LITERAL
     | HEX_LITERAL
     | STRING_LITERAL
     | CHAR_LITERAL

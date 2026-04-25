@@ -323,24 +323,6 @@ class FCCParserListener(ParseTreeListener):
         pass
 
 
-    # Enter a parse tree produced by FCCParser#forInit.
-    def enterForInit(self, ctx:FCCParser.ForInitContext):
-        pass
-
-    # Exit a parse tree produced by FCCParser#forInit.
-    def exitForInit(self, ctx:FCCParser.ForInitContext):
-        pass
-
-
-    # Enter a parse tree produced by FCCParser#forUpdate.
-    def enterForUpdate(self, ctx:FCCParser.ForUpdateContext):
-        pass
-
-    # Exit a parse tree produced by FCCParser#forUpdate.
-    def exitForUpdate(self, ctx:FCCParser.ForUpdateContext):
-        pass
-
-
     # Enter a parse tree produced by FCCParser#varDeclNoSemi.
     def enterVarDeclNoSemi(self, ctx:FCCParser.VarDeclNoSemiContext):
         pass

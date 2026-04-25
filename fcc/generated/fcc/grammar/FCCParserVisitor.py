@@ -184,16 +184,6 @@ class FCCParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by FCCParser#forInit.
-    def visitForInit(self, ctx:FCCParser.ForInitContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by FCCParser#forUpdate.
-    def visitForUpdate(self, ctx:FCCParser.ForUpdateContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by FCCParser#varDeclNoSemi.
     def visitVarDeclNoSemi(self, ctx:FCCParser.VarDeclNoSemiContext):
         return self.visitChildren(ctx)

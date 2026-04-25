@@ -431,6 +431,13 @@ class ASTBuilder(FCCParserVisitor):
                 column=column
             )
 
+        if ctx.MAIN():
+            return IdentifierNode(
+                name=ctx.MAIN().getText(),
+                line=line,
+                column=column
+            )
+
         if ctx.literal():
             return self.visit(ctx.literal())
 
@@ -438,6 +445,14 @@ class ASTBuilder(FCCParserVisitor):
 
     def visitLiteral(self, ctx):
         line, column = self.make_location(ctx)
+
+        if ctx.REAL_LITERAL():
+            return LiteralNode(
+                value=ctx.REAL_LITERAL().getText(),
+                literal_type="float",
+                line=line,
+                column=column
+            )
 
         if ctx.INT_LITERAL():
             return LiteralNode(

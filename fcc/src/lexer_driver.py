@@ -77,6 +77,12 @@ def check_lexical_errors(token_stream, lexer):
             )
             return True
 
+        if token_name == "INVALID_REAL_LITERAL":
+            print(
+                f'Error [lexico] en linea {token.line}: numero real "{token.text}" mal formado.'
+            )
+            return True
+
         if token_name == "INVALID_OPERATOR":
             print(
                 f'Error [lexico] en linea {token.line}: operador "{token.text}" no reconocido.'
@@ -110,6 +116,7 @@ def print_token_table(token_stream, lexer):
         if token_name in {
             "UNCLOSED_BLOCK_COMMENT",
             "INVALID_HASH_OPERATOR",
+            "INVALID_REAL_LITERAL",
             "INVALID_OPERATOR",
             "ERROR_CHAR",
         }:
