@@ -24,13 +24,13 @@ class Instruction:
         ]
 
         tipo_m = ["ldw", "ldh", "ldb", "stw", "sth", "stb"]
+
+        tipo_b = ["beq", "bne"]
         
-        if self.op in tipo_r:
-            return F32IS_Encoder.encode_r(self)
-        if self.op in tipo_i:
-            return F32IS_Encoder.encode_i(self)
-        if self.op in tipo_m: 
-            return F32IS_Encoder.encode_m(self)
+        if self.op in tipo_r: return F32IS_Encoder.encode_r(self)
+        if self.op in tipo_i: return F32IS_Encoder.encode_i(self)
+        if self.op in tipo_m: return F32IS_Encoder.encode_m(self)
+        if self.op in tipo_b: return F32IS_Encoder.encode_b(self)
         
 
         # ... más tipos adelante
@@ -131,6 +131,29 @@ class F32IS_Encoder:
         imm12 = format(imm_val & 0xFFF, '012b')
         
         return p + opcode + s + b + h + w + rd + rn + imm12
+
+    @staticmethod
+    def encode_b(inst: Instruction) -> str:
+        """
+        Formato Tipo B: P(1) | opcode(5) | func4(4) | rd(5) | rs1(5) | imm12(12)
+        """
+        p = "1" if inst.is_secure else "0"
+        opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b01000), '05b')
+        
+        # En Tipo B, func4 suele indicar el tipo de comparación
+        # beq: 0000 (comparar si rd == 0 o rd == rs1 según diseño)
+        # Por ahora usaremos 0000 como estándar para saltos
+        func4 = "0000" 
+        
+        rd = format(inst.rd or 0, '05b')
+        rs1 = format(inst.rn or 0, '05b') # rn actúa como rs1
+        
+        # El salto suele ser PC-relative. 
+        # Usamos complemento a dos para el offset (aquí sí se usa)
+        imm_val = inst.imm or 0
+        imm12 = format(imm_val & 0xFFF, '012b')
+        
+        return p + opcode + func4 + rd + rs1 + imm12
     
 
 
@@ -211,3 +234,16 @@ print(f"stw ra, 0(sp): {inst_stw.encode()}")
 # P(0) | Op(00100) | S(1) B(1) H(0) W(0) | rd(01111) | rn(00010) | imm(000000000100)
 inst_ldb = Instruction(op="ldb", rd=15, rn=2, imm=-4)
 print(f"ldb r1, -4(sp): {inst_ldb.encode()}")
+
+# --- PRUEBAS TIPO B ---
+print(f"\n{'-'*20} TIPO B {'-'*20}")
+
+# 1. beq r1, label (suponiendo r1=15 y el label está 4 instrucciones adelante: +16 bytes)
+# Nota: En muchas RISC el offset se divide por 4 o 2, pero usaremos el valor directo
+inst_beq = Instruction(op="beq", rd=15, imm=16)
+print(f"beq r1, label \(forward)\:  {inst_beq.encode()}")
+
+# 2. beq r1, label (salto hacia atrás, offset de -8)
+# Aquí verás el complemento a dos (111111111000)
+inst_beq_back = Instruction(op="beq", rd=15, imm=-8)
+print(f"beq r1, label \(backward)\: {inst_beq_back.encode()}")
