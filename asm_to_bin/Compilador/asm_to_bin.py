@@ -19,9 +19,14 @@ class Instruction:
             "and", "orr", "xor", "sll", "srl", 
             "mov", "seq"
         ]
+        tipo_i = ["addi", "subi", "muli", "divi", "modi", "andi", "orri",
+                   "xori", "slli", "srli", "movi", "seqi", "li", "la"
+        ]
         
         if self.op in tipo_r:
             return F32IS_Encoder.encode_r(self)
+        if self.op in tipo_i:
+            return F32IS_Encoder.encode_i(self)
         
 
         # ... más tipos adelante
@@ -40,31 +45,31 @@ class F32IS_Encoder:
         "add":  0b00000, "sub":  0b00000, "mul":  0b00000, "div":  0b00000,
         "mod":  0b00000, "and":  0b00000, "orr":  0b00000, "xor":  0b00000,
         "sll":  0b00000, "srl":  0b00000, "mov":  0b00000, "seq":  0b00000,
-        "addi": 0b00001,
-        "padd": 0b00010,
-        "paddi":0b00011,
+        "addi": 0b00001, "subi": 0b00001, "muli": 0b00001, "divi": 0b00001,
+        "modi": 0b00001, "andi": 0b00001, "orri": 0b00001, "xori": 0b00001,
+        "slli": 0b00001, "srli": 0b00001, "movi": 0b00001, "seqi": 0b00001,
+        "li":   0b00001, "la":   0b00001,
+        "padd": 0b00010, "paddi":0b00011,
         "ldw":  0b00100, "ldh": 0b00100, "ldb": 0b00100,
         "stw":  0b00101, "sth": 0b00101, "stb": 0b00101,
-        "beq":  0b01000,
-        "jal":  0b01001,
+        "beq":  0b01000, "jal":  0b01001,
         "send": 0b10000, "recv":0b10000,
         "login":0b10001, "quit":0b10001,
     }
 
-    # Especificación de operación para ALU primaria (Campo func4 para R, I, PR, PI)
+    # Especificación de operación para ALU primaria
     FUNC4_ALU = {
-        "sll":  0b0000,
-        "srl":  0b0001,
-        "add":  0b0010,
-        "sub":  0b0011,
-        "mul":  0b0100,
-        "div":  0b0101,
-        "mod":  0b0110,
-        "and":  0b0111,
-        "orr":  0b1000,
-        "xor":  0b1001,
-        "seq":  0b1010,
-        "mov":  0b0010,
+        "sll": 0b0000, "slli": 0b0000,
+        "srl": 0b0001, "srli": 0b0001,
+        "add": 0b0010, "addi": 0b0010, "movi": 0b0010, "li": 0b0010, "la": 0b0010,
+        "sub": 0b0011, "subi": 0b0011,
+        "mul": 0b0100, "muli": 0b0100,
+        "div": 0b0101, "divi": 0b0101,
+        "mod": 0b0110, "modi": 0b0110,
+        "and": 0b0111, "andi": 0b0111,
+        "orr": 0b1000, "orri": 0b1000,
+        "xor": 0b1001, "xori": 0b1001,
+        "seq": 0b1010, "seqi": 0b1010,
     }
 
     @staticmethod
@@ -79,6 +84,23 @@ class F32IS_Encoder:
         func7 = "0000000" # Valor base para Tipo R
         
         return p + opcode + func4 + rd + rn + rm + func7
+
+    @staticmethod
+    def encode_i(inst: Instruction) -> str:
+        """
+        Formato Tipo I: P(1) | opcode(5) | func4(4) | rd(5) | rn(5) | imm12(12)
+        """
+        p = "1" if inst.is_secure else "0"
+        opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b00001), '05b')
+        func4 = format(F32IS_Encoder.FUNC4_ALU.get(inst.op, 0b0010), '04b')
+        rd = format(inst.rd or 0, '05b')
+        rn = format(inst.rn or 0, '05b')
+        
+        # El inmediato es de 12 bits
+        imm_val = inst.imm or 0
+        imm12 = format(imm_val & 0xFFF, '012b') 
+        
+        return p + opcode + func4 + rd + rn + imm12
     
 
 
@@ -123,3 +145,22 @@ print(f"MOV: {bin_mov}")
 inst_seq = Instruction(op="seq", rd=15, rn=16, rm=17)
 bin_seq = F32IS_Encoder.encode_r(inst_seq)
 print(f"SEQ: {bin_seq}")
+
+# --- Pruebas de instrucciones Tipo I ---
+
+# 1. addi sp, sp, 8
+# rd: sp (2), rn: sp (2), imm: 8
+# Formato: P(0) | Op(00001) | F4(0010) | rd(00010) | rn(00010) | imm12(000000001000)
+inst_addi = Instruction(op="addi", rd=2, rn=2, imm=8)
+print(f"ADDI (sp, sp, 8): {F32IS_Encoder.encode_i(inst_addi)}")
+
+# 2. li r1, 2 (Mapeado a movi)
+# rd: r1 (15), rn: zero (0), imm: 2
+# Formato: P(0) | Op(00001) | F4(0010) | rd(01111) | rn(00000) | imm12(000000000010)
+inst_li = Instruction(op="li", rd=15, imm=2)
+print(f"LI   (r1, 2):    {F32IS_Encoder.encode_i(inst_li)}")
+
+# 3. xori r5, r5, 0xFFF
+# rd: r19 (19), rn: r19 (19), imm: 4095
+inst_xori = Instruction(op="xori", rd=19, rn=19, imm=0xFFF)
+print(f"XORI (r5, r5, -1): {F32IS_Encoder.encode_i(inst_xori)}")
