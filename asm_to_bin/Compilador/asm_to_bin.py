@@ -22,11 +22,15 @@ class Instruction:
         tipo_i = ["addi", "subi", "muli", "divi", "modi", "andi", "orri",
                    "xori", "slli", "srli", "movi", "seqi", "li", "la"
         ]
+
+        tipo_m = ["ldw", "ldh", "ldb", "stw", "sth", "stb"]
         
         if self.op in tipo_r:
             return F32IS_Encoder.encode_r(self)
         if self.op in tipo_i:
             return F32IS_Encoder.encode_i(self)
+        if self.op in tipo_m: 
+            return F32IS_Encoder.encode_m(self)
         
 
         # ... más tipos adelante
@@ -102,51 +106,80 @@ class F32IS_Encoder:
         
         return p + opcode + func4 + rd + rn + imm12
     
+    @staticmethod
+    def encode_m(inst: Instruction) -> str:
+        """
+        Formato Tipo M: P(1)|opcode(5)|S(1)|B(1)|H(1)|W(1)|rd(5)|rn(5)|imm12(12)
+        """
+        p = "1" if inst.is_secure else "0"
+        opcode = format(F32IS_Encoder.OPCODES.get(inst.op[:3], 0b00100), '05b')
+        
+        # Bits de control de tamaño
+        w = "1" if "w" in inst.op else "0"
+        h = "1" if "h" in inst.op else "0"
+        b = "1" if "b" in inst.op else "0"
+        
+        # S: Selección operación (0: suma, 1: resta)
+        # Por defecto 0, a menos que el inmediato sea negativo
+        s = "1" if (inst.imm is not None and inst.imm < 0) else "0"
+        
+        rd = format(inst.rd or 0, '05b')
+        rn = format(inst.rn or 0, '05b')
+        
+        # Inmediato de 12 bits (siempre positivo en el campo, el signo va en S)
+        imm_val = abs(inst.imm or 0)
+        imm12 = format(imm_val & 0xFFF, '012b')
+        
+        return p + opcode + s + b + h + w + rd + rn + imm12
+    
 
 
-# --- Pruebas de instrucciones tipo R (Extensión I) ---
+# --- Pruebas de instrucciones tipo R ---
+print(f"\n{'-'*20} TIPO R {'-'*20}")
 
 # 1. mul r1, p0, r1 (R[15] = R[5] * R[15])
 # Basado en la línea 15 del ejemplo 'sum'
 inst1 = Instruction(op="mul", rd=15, rn=5, rm=15)
 bin1 = F32IS_Encoder.encode_r(inst1)
-print(f"MUL: {bin1}") 
+print(f"mul r1, p0, r1: {bin1}") 
 # Desglose esperado: P(0) | Op(00000) | F4(0100) | rd(01111) | rn(00101) | rm(01111) | F7(0000000)
 
 # 2. add p0, r1, p1 (R[5] = R[15] + R[6])
 # Basado en la línea 16 del ejemplo 'sum'
 inst2 = Instruction(op="add", rd=5, rn=15, rm=6)
 bin2 = F32IS_Encoder.encode_r(inst2)
-print(f"ADD: {bin2}")
+print(f"add p0, r1, p1: {bin2}")
 # Desglose esperado: P(0) | Op(00000) | F4(0010) | rd(00101) | rn(01111) | rm(00110) | F7(0000000)
 
 # 3. sub r0, r1, r2 (R[14] = R[15] - R[16])
 # Operación aritmética general
 inst3 = Instruction(op="sub", rd=14, rn=15, rm=16)
 bin3 = F32IS_Encoder.encode_r(inst3)
-print(f"SUB: {bin3}")
+print(f"sub r0, r1, r2: {bin3}")
 # Desglose esperado: P(0) | Op(00000) | F4(0011) | rd(01110) | rn(01111) | rm(10000) | F7(0000000)
 
 # 4. xor r4, r4, r4 (Limpiar registro r4)
 inst4 = Instruction(op="xor", rd=18, rn=18, rm=18)
 bin4 = F32IS_Encoder.encode_r(inst4)
-print(f"XOR: {bin4}")
+print(f"xor r4, r4, r4: {bin4}")
 # Desglose esperado: P(0) | Op(00000) | F4(1001) | rd(10010) | rn(10010) | rm(10010) | F7(0000000)
 
 # 1. mov r1, ra (Mover ra al registro r1)
 # ra es 1, r1 es 15
 inst_mov = Instruction(op="mov", rd=15, rn=1)
 bin_mov = F32IS_Encoder.encode_r(inst_mov)
-print(f"MOV: {bin_mov}") 
+print(f"mov r1, ra: {bin_mov}") 
 # Nota: rm será 0 (registro zero) por defecto en tu clase, lo cual es correcto.
 
 # 2. seq rd, rn, rm (Set if equal)
 # Comparar si r2 == r3 y guardar resultado en r1
 inst_seq = Instruction(op="seq", rd=15, rn=16, rm=17)
 bin_seq = F32IS_Encoder.encode_r(inst_seq)
-print(f"SEQ: {bin_seq}")
+print(f"seq rd, rn, rm: {bin_seq}")
 
 # --- Pruebas de instrucciones Tipo I ---
+
+print(f"\n{'-'*20} TIPO I {'-'*20}")
 
 # 1. addi sp, sp, 8
 # rd: sp (2), rn: sp (2), imm: 8
@@ -164,3 +197,17 @@ print(f"LI   (r1, 2):    {F32IS_Encoder.encode_i(inst_li)}")
 # rd: r19 (19), rn: r19 (19), imm: 4095
 inst_xori = Instruction(op="xori", rd=19, rn=19, imm=0xFFF)
 print(f"XORI (r5, r5, -1): {F32IS_Encoder.encode_i(inst_xori)}")
+
+
+# --- Pruebas de instrucciones tipo M ---
+print(f"\n{'-'*20} TIPO M {'-'*20}")
+
+# 1. stw ra, 0(sp) -> Guardar word de ra(1) en sp(2) + 0
+# P(0) | Op(00101) | S(0) B(0) H(0) W(1) | rd(00001) | rn(00010) | imm(000000000000)
+inst_stw = Instruction(op="stw", rd=1, rn=2, imm=0)
+print(f"stw ra, 0(sp): {inst_stw.encode()}")
+
+# 2. ldb r1, -4(sp) -> Cargar byte en r1(15) desde sp(2) - 4
+# P(0) | Op(00100) | S(1) B(1) H(0) W(0) | rd(01111) | rn(00010) | imm(000000000100)
+inst_ldb = Instruction(op="ldb", rd=15, rn=2, imm=-4)
+print(f"ldb r1, -4(sp): {inst_ldb.encode()}")
