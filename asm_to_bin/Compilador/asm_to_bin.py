@@ -4,39 +4,49 @@ import struct
 
 @dataclass
 class Instruction:
+    """
+    Handles F32IS instruction components and mnemonic-to-address resolution.
+    
+    Attributes:
+        op (str): Operation name (e.g., 'add', '@mul').
+        rd (Optional[int]): Destination register (GPR or Secure sd).
+        rn (Optional[int]): First source register (GPR or Secure sn).
+        rm (Optional[int]): Second source register (GPR or Secure sm).
+        sf (Optional[int]): Fourth register field for PR-type ops.
+        imm (Optional[int]): Immediate value or offset.
+        is_secure (bool): Specification 'P' bit status.
+    """
     op: str
-    rd: Optional[int] = None   # Registro destino (o sd para seguros)
-    rn: Optional[int] = None   # Primer registro fuente (o sn)
-    rm: Optional[int] = None   # Segundo registro fuente (o sm)
-    sf: Optional[int] = None   # Cuarto registro para PR (paddadd, etc)
+    rd: Optional[int] = None
+    rn: Optional[int] = None
+    rm: Optional[int] = None
+    sf: Optional[int] = None
     imm: Optional[int] = None
-    is_secure: bool = False    # El bit 'P' de la especificación
+    is_secure: bool = False
 
     def _resolve_regs(self):
         """
-        Traduce nombres de registros a sus direcciones físicas (0-31 o 0-7).
-        Debe llamarse antes de encode().
+        Translates register aliases to physical addresses (0-31 or 0-7).
+        Must be executed prior to encode().
         """
-        # Identificar si la instrucción usa el banco seguro (Tipo PR, PI o T)
-        # padd, psub, pmul (PR) / paddi, psubi (PI) / send, recv (T)
+        # Identify if the instruction targets the Secure Register Bank (PR, PI, or T types)
         secure_ops = ["padd", "psub", "pmul", "paddi", "psubi", "send", "recv"]
         is_secure_instr = self.op.strip("@") in secure_ops
 
-        # Resolver RD
+        # Resolve Destination Register (rd)
         if self.rd is not None and isinstance(self.rd, str):
-            # En 'send/recv', rd es el registro seguro (sd)
-            # En PR/PI, rd es el registro seguro (sd)
+            # For PR/PI and send/recv, rd maps to the Secure Bank (sd)
             is_rd_secure = is_secure_instr 
             self.rd = F32IS_Encoder.get_reg_addr(self.rd, is_rd_secure)
 
-        # Resolver RN
+        # Resolve First Source Register (rn)
         if self.rn is not None and isinstance(self.rn, str):
-            # En 'send/recv', rn es un registro GENERAL (5 bits)
-            # En PR/PI, rn es seguro (3 bits)
+            # Special case: 'send/recv' use General GPR for rn (5 bits), others use Secure (3 bits)
             is_rn_secure = is_secure_instr and self.op.strip("@") not in ["send", "recv"]
             self.rn = F32IS_Encoder.get_reg_addr(self.rn, is_rn_secure)
 
-        # Resolver RM y SF (Siempre seguros si la instrucción es PR)
+        # Resolve Second Source (rm) and Fourth Field (sf)
+        # Always mapped as Secure registers if the base instruction is a Secure type
         if self.rm is not None and isinstance(self.rm, str):
             self.rm = F32IS_Encoder.get_reg_addr(self.rm, is_secure_instr)
         
@@ -44,40 +54,34 @@ class Instruction:
             self.sf = F32IS_Encoder.get_reg_addr(self.sf, is_secure_instr)
 
 
-
     def encode(self) -> str:
-        """Punto de entrada principal para codificar a binario (32 bits)"""
-
+        """
+        Main entry point for 32-bit binary encoding.
+        
+        This method handles:
+        1. Register resolution via _resolve_regs().
+        2. Detection of the '@' security prefix to set the 'is_secure' bit.
+        3. Dispatching to specific encoding methods based on the instruction type 
+           (R, I, M, B, J, PR, PI, T).
+        """
+        # (Internal logic for type lists and secure bit detection)
         self._resolve_regs()
 
-       # Lista completa de instrucciones Tipo R según el ISA
-        tipo_r = [
-            "add", "sub", "mul", "div", "mod", 
-            "and", "orr", "xor", "sll", "srl", 
-            "mov", "seq"
-        ]
-        tipo_i = ["addi", "subi", "muli", "divi", "modi", "andi", "orri",
-                   "xori", "slli", "srli", "movi", "seqi", "li", "la"
-        ]
-
+        tipo_r = ["add", "sub", "mul", "div", "mod", "and", "orr", "xor", "sll", "srl", "mov", "seq"]
+        tipo_i = ["addi", "subi", "muli", "divi", "modi", "andi", "orri", "xori", "slli", "srli", "movi", "seqi", "li", "la"]
         tipo_m = ["ldw", "ldh", "ldb", "stw", "sth", "stb"]
-
         tipo_b = ["beq", "bne"]
-
         tipo_j = ["jal", "j"]
-
         tipo_pr = ["padd", "psub", "pmul"]
-
         tipo_pi = ["paddi", "psubi"]
-
         tipo_t = ["send", "recv"]
-        
+        tipo_sys = ["login", "quit"]
 
         if self.op.startswith("@"):
             self.is_secure = True
-            self.op = self.op[1:] # Quitamos el @ para buscar el opcode normal
-        
-        
+            self.op = self.op[1:] 
+
+        # Type-based dispatching
         if self.op in tipo_r: return F32IS_Encoder.encode_r(self)
         if self.op in tipo_i: return F32IS_Encoder.encode_i(self)
         if self.op in tipo_m: return F32IS_Encoder.encode_m(self)
@@ -86,37 +90,49 @@ class Instruction:
         if self.op in tipo_pr: return F32IS_Encoder.encode_pr(self)
         if self.op in tipo_pi: return F32IS_Encoder.encode_pi(self)
         if self.op in tipo_t: return F32IS_Encoder.encode_t(self)
-        
+        if self.op in tipo_sys: return F32IS_Encoder.encode_sys(self)
 
-        # ... más tipos adelante
         return "0" * 32
 
     def _to_bin(self, value: int, bits: int) -> str:
-        """Helper para convertir enteros a binario con signo/relleno"""
-        if value < 0: # Manejo de negativos para inmediatos
+        """
+        Helper to convert integers to binary strings with padding and sign handling.
+        Uses two's complement for negative immediate values.
+        """
+        if value < 0: 
             value = (1 << bits) + value
         return format(value & ((1 << bits) - 1), f'0{bits}b')
     
 
-
 class F32IS_Encoder:
+    """
+    Encoder constants and mapping for the F32IS Architecture.
+    
+    This class defines the operational codes (Opcodes), ALU function 
+    specifiers (FUNC4), and register file mappings required to 
+    translate assembly instructions into machine code.
+    """
+
+    # Primary Operation Codes (5 bits)
+    # Categorizes instructions into formats (R, I, M, B, J, etc.)
     OPCODES = {
-        "add":  0b00000, "sub":  0b00000, "mul":  0b00000, "div":  0b00000,
-        "mod":  0b00000, "and":  0b00000, "orr":  0b00000, "xor":  0b00000,
-        "sll":  0b00000, "srl":  0b00000, "mov":  0b00000, "seq":  0b00000,
-        "addi": 0b00001, "subi": 0b00001, "muli": 0b00001, "divi": 0b00001,
-        "modi": 0b00001, "andi": 0b00001, "orri": 0b00001, "xori": 0b00001,
-        "slli": 0b00001, "srli": 0b00001, "movi": 0b00001, "seqi": 0b00001,
-        "li":   0b00001, "la":   0b00001,
-        "padd": 0b00010, "paddi":0b00011,
-        "ldw":  0b00100, "ldh": 0b00100, "ldb": 0b00100,
-        "stw":  0b00101, "sth": 0b00101, "stb": 0b00101,
-        "beq":  0b01000, "jal":  0b01001,
-        "send": 0b10000, "recv":0b10000,
-        "login":0b10001, "quit":0b10001,
+        "add":   0b00000, "sub":  0b00000, "mul":  0b00000, "div":  0b00000,
+        "mod":   0b00000, "and":  0b00000, "orr":  0b00000, "xor":  0b00000,
+        "sll":   0b00000, "srl":  0b00000, "mov":  0b00000, "seq":  0b00000,
+        "addi":  0b00001, "subi": 0b00001, "muli": 0b00001, "divi": 0b00001,
+        "modi":  0b00001, "andi": 0b00001, "orri": 0b00001, "xori": 0b00001,
+        "slli":  0b00001, "srli": 0b00001, "movi": 0b00001, "seqi": 0b00001,
+        "li":    0b00001, "la":   0b00001,
+        "padd":  0b00010, "paddi":0b00011,
+        "ldw":   0b00100, "ldh":  0b00100, "ldb":  0b00100,
+        "stw":   0b00101, "sth":  0b00101, "stb":  0b00101,
+        "beq":   0b01000, "jal":  0b01001,
+        "send":  0b10000, "recv": 0b10000,
+        "login": 0b10001, "quit": 0b10001,
     }
 
-    # Especificación de operación para ALU primaria
+    # ALU Function Specifiers (4 bits)
+    # Used by the Control Unit to select the specific operation within the ALU
     FUNC4_ALU = {
         "sll": 0b0000, "slli": 0b0000,
         "srl": 0b0001, "srli": 0b0001,
@@ -131,22 +147,24 @@ class F32IS_Encoder:
         "seq": 0b1010, "seqi": 0b1010,
     }
 
-
-    # Banco de registros (32 registros, 5 bits)
+    # General Purpose Register (GPR) Map (5 bits - 32 Registers)
+    # Includes control registers, function arguments (p0-p8), 
+    # and general-purpose registers (r0-r15)
     GPR_MAP = {
-        # Control y Argumentos
+        # Control & Argument Registers
         "zero": 0, "ra": 1, "sp": 2, "pc": 3, "lr": 4,
         "p0": 5, "p1": 6, "p2": 7, "p3": 8, "p4": 9, "p5": 10, "p6": 11, "p7": 12, "p8": 13,
         
-        # Propósito General (r0-r15 mapeados de 14 a 29)
+        # General Purpose (r0-r15 mapped from 14 to 29)
         "r0": 14, "r1": 15, "r2": 16, "r3": 17, "r4": 18, "r5": 19, "r6": 20, "r7": 21,
         "r8": 22, "r9": 23, "r10": 24, "r11": 25, "r12": 26, "r13": 27, "r14": 28, "r15": 29,
         
-        # Valores constantes
+        # Hardcoded Constants
         "delta": 30, "max": 31
     }
 
-    # Banco seguro de registros (8 registros, 3 bits)
+    # Secure Register Bank Map (3 bits - 8 Registers)
+    # Specialized registers used for cryptographic or secure data handling
     SECURE_MAP = {
         "ax": 0, "bx": 1, "cx": 2, "dx": 3,
         "ex": 4, "fx": 5, "gx": 6, "hx": 7
@@ -154,34 +172,49 @@ class F32IS_Encoder:
 
     @staticmethod
     def get_reg_addr(name: str, is_secure_field: bool = False) -> int:
-        """Convierte el nombre del registro a su dirección binaria."""
+        """
+        Translates a register mnemonic into its physical binary address.
+        
+        Args:
+            name (str): The register name (e.g., 'sp', 'ax').
+            is_secure_field (bool): If True, look up in the 3-bit Secure bank.
+                                   If False, look up in the 5-bit GPR bank.
+        Returns:
+            int: The physical address of the register.
+        """
         name = name.lower().strip()
         if is_secure_field:
             if name in F32IS_Encoder.SECURE_MAP:
                 return F32IS_Encoder.SECURE_MAP[name]
-            raise ValueError(f"Registro seguro '{name}' no existe en el banco de 3 bits.")
+            raise ValueError(f"Secure register '{name}' not found in 3-bit bank.")
         else:
             if name in F32IS_Encoder.GPR_MAP:
                 return F32IS_Encoder.GPR_MAP[name]
-            raise ValueError(f"Registro general '{name}' no existe en el banco de 5 bits.")
+            raise ValueError(f"General register '{name}' not found in 5-bit bank.")
 
     @staticmethod
     def encode_r(inst: Instruction) -> str:
-        # P | opcode | func4 | rd | rn | rm | func7
+        """
+        Encodes Type-R instructions (Register-to-Register).
+        Format: P(1) | Opcode(5) | Func4(4) | rd(5) | rn(5) | rm(5) | Func7(7)
+        Total: 32 bits.
+        """
         p = "1" if inst.is_secure else "0"
         opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0), '05b')
         func4 = format(F32IS_Encoder.FUNC4_ALU.get(inst.op, 0), '04b')
         rd = format(inst.rd or 0, '05b')
         rn = format(inst.rn or 0, '05b')
         rm = format(inst.rm or 0, '05b')
-        func7 = "0000000" # Valor base para Tipo R
+        func7 = "0000000" # Base padding/extension for Type-R
         
         return p + opcode + func4 + rd + rn + rm + func7
 
     @staticmethod
     def encode_i(inst: Instruction) -> str:
         """
-        Formato Tipo I: P(1) | opcode(5) | func4(4) | rd(5) | rn(5) | imm12(12)
+        Encodes Type-I instructions (Immediate arithmetic/logic).
+        Format: P(1) | Opcode(5) | Func4(4) | rd(5) | rn(5) | Immediate(12)
+        Total: 32 bits.
         """
         p = "1" if inst.is_secure else "0"
         opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b00001), '05b')
@@ -189,7 +222,7 @@ class F32IS_Encoder:
         rd = format(inst.rd or 0, '05b')
         rn = format(inst.rn or 0, '05b')
         
-        # El inmediato es de 12 bits
+        # Immediate is truncated/masked to 12 bits
         imm_val = inst.imm or 0
         imm12 = format(imm_val & 0xFFF, '012b') 
         
@@ -198,24 +231,30 @@ class F32IS_Encoder:
     @staticmethod
     def encode_m(inst: Instruction) -> str:
         """
-        Formato Tipo M: P(1)|opcode(5)|S(1)|B(1)|H(1)|W(1)|rd(5)|rn(5)|imm12(12)
+        Encodes Type-M instructions (Memory Load/Store).
+        Format: P(1)|Opcode(5)|S(1)|B(1)|H(1)|W(1)|rd(5)|rn(5)|Immediate12(12)
+        
+        Fields:
+            S: Operation selection (0: addition, 1: subtraction for offset).
+            B, H, W: Size control bits (Byte, Half, Word).
+            Immediate: 12-bit magnitude (sign is handled by S bit).
         """
         p = "1" if inst.is_secure else "0"
+        # Opcode lookup based on first 3 chars (ldw/stw)
         opcode = format(F32IS_Encoder.OPCODES.get(inst.op[:3], 0b00100), '05b')
         
-        # Bits de control de tamaño
+        # Size control flags based on mnemonic suffix
         w = "1" if "w" in inst.op else "0"
         h = "1" if "h" in inst.op else "0"
         b = "1" if "b" in inst.op else "0"
         
-        # S: Selección operación (0: suma, 1: resta)
-        # Por defecto 0, a menos que el inmediato sea negativo
+        # S bit: 1 if immediate is negative, 0 otherwise
         s = "1" if (inst.imm is not None and inst.imm < 0) else "0"
         
         rd = format(inst.rd or 0, '05b')
         rn = format(inst.rn or 0, '05b')
         
-        # Inmediato de 12 bits (siempre positivo en el campo, el signo va en S)
+        # 12-bit immediate (absolute value stored in field)
         imm_val = abs(inst.imm or 0)
         imm12 = format(imm_val & 0xFFF, '012b')
         
@@ -224,21 +263,23 @@ class F32IS_Encoder:
     @staticmethod
     def encode_b(inst: Instruction) -> str:
         """
-        Formato Tipo B: P(1) | opcode(5) | func4(4) | rd(5) | rs1(5) | imm12(12)
+        Encodes Type-B instructions (Conditional Branches).
+        Format: P(1) | Opcode(5) | Func4(4) | rd(5) | rs1(5) | Immediate12(12)
+        
+        Note:
+            Immediate is encoded in two's complement for PC-relative offsets.
+            rn is mapped to the rs1 field.
         """
         p = "1" if inst.is_secure else "0"
         opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b01000), '05b')
         
-        # En Tipo B, func4 suele indicar el tipo de comparación
-        # beq: 0000 (comparar si rd == 0 o rd == rs1 según diseño)
-        # Por ahora usaremos 0000 como estándar para saltos
+        # Func4 typically defines comparison logic (defaulting to 0000)
         func4 = "0000" 
         
         rd = format(inst.rd or 0, '05b')
-        rs1 = format(inst.rn or 0, '05b') # rn actúa como rs1
+        rs1 = format(inst.rn or 0, '05b')
         
-        # El salto suele ser PC-relative. 
-        # Usamos complemento a dos para el offset (aquí sí se usa)
+        # PC-relative offset in 12-bit two's complement
         imm_val = inst.imm or 0
         imm12 = format(imm_val & 0xFFF, '012b')
         
@@ -247,22 +288,25 @@ class F32IS_Encoder:
     @staticmethod
     def encode_j(inst: Instruction) -> str:
         """
-        Formato Tipo J: P(1) | opcode(5) | rd(5) | imm21(21)
+        Encodes Type-J instructions (Unconditional Jumps/Link).
+        Format: P(1) | Opcode(5) | rd(5) | Immediate21(21)
+        
+        Total: 32 bits.
+        The 21-bit immediate allows for a large jump range in two's complement.
         """
         p = "1" if inst.is_secure else "0"
-        # jal tiene opcode 01001
         opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b01001), '05b')
         
         rd = format(inst.rd or 0, '05b')
         
-        # Inmediato de 21 bits en complemento a dos
+        # 21-bit two's complement immediate
         imm_val = inst.imm or 0
-        # Máscara de 21 bits: (1 << 21) - 1 = 0x1FFFFF
         imm21 = format(imm_val & 0x1FFFFF, '021b')
         
         return p + opcode + rd + imm21
     
-    # Mapeo de registros seguros (ax=0, bx=1, ..., hx=7)
+    # Secure register mapping (ax=0, bx=1, ..., hx=7)
+    # These 3-bit identifiers are used in PR, PI, and T instruction formats.
     SECURE_REGS = {
         "ax": 0, "bx": 1, "cx": 2, "dx": 3,
         "ex": 4, "fx": 5, "gx": 6, "hx": 7
@@ -271,26 +315,35 @@ class F32IS_Encoder:
     @staticmethod
     def encode_pr(inst: Instruction) -> str:
         """
-        Formato Tipo PR: P(1)|opcode(5)|func4(4)|sd(3)|sn(3)|sm(3)|sf(3)|func10(10)
+        Encodes Type-PR instructions (Secure Register-to-Register).
+        Format: P(1)|Opcode(5)|Func4(4)|sd(3)|sn(3)|sm(3)|sf(3)|Func10(10)
+        
+        Fields:
+            sd, sn, sm, sf: 3-bit secure register indices.
+            Func10: Padding or auxiliary control bits.
         """
-        p = "1" # Siempre 1 para estas extensiones
+        p = "1" # P-bit is always 1 for secure extensions
         opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b00010), '05b')
         func4 = format(F32IS_Encoder.FUNC4_ALU.get(inst.op, 0b0010), '04b')
         
-        # Registros de 3 bits
+        # Mapping 3-bit registers (Secure Bank)
         sd = format(inst.rd or 0, '03b')
         sn = format(inst.rn or 0, '03b')
         sm = format(inst.rm or 0, '03b')
         sf = format(inst.sf or 0, '03b')
         
-        func10 = "0000000000" # Bits de relleno o funciones extra
+        func10 = "0000000000" 
         
         return p + opcode + func4 + sd + sn + sm + sf + func10
 
     @staticmethod
     def encode_pi(inst: Instruction) -> str:
         """
-        Formato Tipo PI: P(1)|opcode(5)|func4(4)|sd(3)|sn(3)|imm16(16)
+        Encodes Type-PI instructions (Secure Immediate).
+        Format: P(1)|Opcode(5)|Func4(4)|sd(3)|sn(3)|Immediate16(16)
+        
+        Note:
+            Uses a larger 16-bit immediate compared to standard I-types.
         """
         p = "1"
         opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b00011), '05b')
@@ -299,7 +352,7 @@ class F32IS_Encoder:
         sd = format(inst.rd or 0, '03b')
         sn = format(inst.rn or 0, '03b')
         
-        # Inmediato más largo (16 bits)
+        # 16-bit immediate value
         imm_val = inst.imm or 0
         imm16 = format(imm_val & 0xFFFF, '016b')
         
@@ -308,50 +361,108 @@ class F32IS_Encoder:
     @staticmethod
     def encode_t(inst: Instruction) -> str:
         """
-        Formato Tipo T: P(1) | opcode(5) | func4(4) | sd(3) | rn(5) | func14(14)
+        Encodes Type-T instructions (Transport/Move between banks).
+        Format: P(1) | Opcode(5) | Func4(4) | sd(3) | rn(5) | Func14(14)
+        
+        Logic:
+            This type moves data between the 3-bit Secure bank (sd) 
+            and the 5-bit General Purpose bank (rn).
         """
-        p = "1" # Estas instrucciones requieren sesión iniciada (Hardware seguro)
+        p = "1" # Hardware security bit enabled
         opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b10000), '05b')
         
-        # func4: Diferenciamos entre send (0000) y recv (0001)
+        # func4: Differentiates between 'send' (0000) and 'recv' (0001)
         func4 = "0000" if inst.op == "send" else "0001"
         
-        sd = format(inst.rd or 0, '03b')  # Registro seguro (ax-hx)
-        rn = format(inst.rn or 0, '05b')  # Registro general (ra, sp, r0...)
+        sd = format(inst.rd or 0, '03b')  # Secure register index (ax-hx)
+        rn = format(inst.rn or 0, '05b')  # GPR index (ra, sp, r0-r15)
         
-        func14 = "0" * 14 # Bits de control adicionales
+        func14 = "0" * 14 # Additional control padding
         
         return p + opcode + func4 + sd + rn + func14
     
-
+    @staticmethod
+    def encode_sys(inst: Instruction) -> str:
+        """
+        Format to Login/Quit: P(1) | Opcode(5) | Unused(5) | Immediate21(21)
+        Nota: 'login' use the inmidiate for key, 'quit' ignore that.
+        """
+        p = "0" # Login/Quit son instrucciones de control de estado
+        opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b10001), '05b')
+        
+        # rd/unused: 5 bits en cero ya que login no escribe en registros
+        unused = "00000"
+        
+        # Inmediato de 21 bits para la llave (0xBEEF0 cabe perfectamente)
+        imm_val = inst.imm or 0
+        imm21 = format(imm_val & 0x1FFFFF, '021b')
+        
+        return p + opcode + unused + imm21
+    
 class F32IS_Writer:
+    """
+    Handles the physical output generation for the F32IS assembler.
+    
+    This class converts internal binary strings into finalized file formats,
+    ensuring correct byte alignment and endianness for hardware compatibility.
+    """
+
     @staticmethod
     def to_bytes(binary_str: str):
-        """Convierte una cadena de 32 bits '01...' en un objeto bytes de 4 bytes"""
-        # Convertimos la cadena base 2 a un entero de 32 bits
+        """
+        Converts a 32-bit binary string into a 4-byte object.
+        
+        Uses Big Endian byte order ('>'), which is the architectural 
+        standard for F32IS instruction fetch.
+        
+        Args:
+            binary_str (str): A string of 32 characters ('0' or '1').
+        Returns:
+            bytes: A 4-byte packed representation of the instruction.
+        """
+        # Convert base-2 string to a 32-bit integer
         value = int(binary_str, 2)
-        # Lo empaquetamos como Big Endian (el estándar para ISAs usualmente)
-        # '>' es Big Endian, 'I' es unsigned int de 32 bits
+        # Pack as Big Endian (>) Unsigned Int (I)
         return struct.pack('>I', value)
 
     @staticmethod
     def save_bin(filename: str, instructions: list):
-        """Genera un archivo binario puro"""
+        """
+        Generates a raw binary executable file.
+        
+        This format is intended for direct loading into physical 
+        RAM or Flash memory modules.
+        
+        Args:
+            filename (str): The output path (e.g., 'program.bin').
+            instructions (list): List of 32-bit binary strings.
+        """
         with open(filename, 'wb') as f:
             for inst in instructions:
                 f.write(F32IS_Writer.to_bytes(inst))
-        print(f"Archivo binario guardado como: {filename}")
+        print(f"Binary file successfully saved as: {filename}")
 
     @staticmethod
     def save_hex(filename: str, instructions: list):
-        """Genera un archivo de texto con formato hexadecimal (Verilog/Intel HEX style)"""
+        """
+        Generates a text-based hexadecimal file.
+        
+        Compatible with Verilog $readmemh, Logisim memory loads, 
+        and Intel HEX-style debuggers.
+        
+        Args:
+            filename (str): The output path (e.g., 'program.hex').
+            instructions (list): List of 32-bit binary strings.
+        """
         with open(filename, 'w') as f:
             for inst in instructions:
                 value = int(inst, 2)
-                # Formato: 8 caracteres hex por instrucción (32 bits)
+                # Format: 8-character uppercase hex padding (32 bits)
                 f.write(f"{value:08X}\n")
-        print(f"Archivo hexadecimal guardado como: {filename}")
+        print(f"Hexadecimal file successfully saved as: {filename}")
 
+
+"""
 # --- Pruebas de instrucciones tipo R (Corregidas con nombres de registros reales F32IS) ---
 print(f"\n{'-'*20} TIPO R {'-'*20}")
 
@@ -536,45 +647,109 @@ bin_no_at = inst_no_at.encode()
 print(f"\nInstrucción original: mul r3, r1, r2")
 print(f"Binario generado:     {bin_no_at}")
 print(f"Bit P (seguridad):    {bin_no_at[0]} <--- Debe ser 0")
+"""
 
+# ==============================================================================
+# 1. DEFINICIÓN DEL PROGRAMA ASM
+# ==============================================================================
+# Aquí se define la lógica del programa 'sum'.
+# El uso de 'sp', 'ra', 'p0', etc., es resuelto automáticamente por .encode()
+# ==============================================================================
 
-# --- 1. Definición del programa ASM ---
 program_asm = [
-    # __init__
+    # __init__: Configuración inicial y llamada a función
     Instruction(op="movi", rd="r1", imm=4),           # PC 0
     Instruction(op="movi", rd="p0", imm=7),           # PC 4
     Instruction(op="add",  rd="p1", rn="p0", rm="r1"), # PC 8
     Instruction(op="call", imm=8),                    # PC 12 -> Salto a PC 20 (sum)
     Instruction(op="mul",  rd="r1", rn="p0", rm="r1"), # PC 16
 
-    # sum:
-    Instruction(op="addi", rd="sp", rn="sp", imm=8),  # PC 20
-    Instruction(op="stw",  rd="ra", rn="sp", imm=0),  # PC 24
-    Instruction(op="stw",  rd="r1", rn="sp", imm=4),  # PC 28
+    # sum: Rutina que calcula (a*2)+b gestionando el Stack
+    Instruction(op="addi", rd="sp", rn="sp", imm=8),  # PC 20: Abrir marco de pila
+    Instruction(op="stw",  rd="ra", rn="sp", imm=0),  # PC 24: Guardar Retorno
+    Instruction(op="stw",  rd="r1", rn="sp", imm=4),  # PC 28: Guardar Temporal
     
-    Instruction(op="li",   rd="r1", imm=2),           # PC 32
-    Instruction(op="mul",  rd="r1", rn="p0", rm="r1"), # PC 36
-    Instruction(op="add",  rd="p0", rn="r1", rm="p1"), # PC 40
+    Instruction(op="li",   rd="r1", imm=2),           # PC 32: Cargar multiplicador
+    Instruction(op="mul",  rd="r1", rn="p0", rm="r1"), # PC 36: a * 2
+    Instruction(op="add",  rd="p0", rn="r1", rm="p1"), # PC 40: (a*2) + b
     
-    Instruction(op="ldw",  rd="r1", rn="sp", imm=4),  # PC 44
-    Instruction(op="ldw",  rd="ra", rn="sp", imm=0),  # PC 48
-    Instruction(op="addi", rd="sp", rn="sp", imm=-8), # PC 52
-    Instruction(op="ret")                             # PC 56
+    Instruction(op="ldw",  rd="r1", rn="sp", imm=4),  # PC 44: Restaurar Temporal
+    Instruction(op="ldw",  rd="ra", rn="sp", imm=0),  # PC 48: Restaurar Retorno
+    Instruction(op="addi", rd="sp", rn="sp", imm=-8), # PC 52: Cerrar marco de pila
+    Instruction(op="ret")                             # PC 56: Volver a __init__
 ]
 
-# --- 2. Codificación y Ejecución de la Escritura ---
+# ==============================================================================
+# 2. CODIFICACIÓN Y EJECUCIÓN DE LA ESCRITURA
+# ==============================================================================
+
 try:
-    # Generamos la lista de strings binarios
+    # PASO A: Codificar cada objeto Instruction a una cadena binaria de 32 bits
+    # Esto dispara internamente el mapeo de registros GPR y Secure.
     encoded_instructions = [inst.encode() for inst in program_asm]
 
-    # Usamos tu clase F32IS_Writer
+    # PASO B: Persistencia de archivos
+    # Se generan archivos compatibles con simuladores (hex) y hardware (bin).
     F32IS_Writer.save_bin("sum_program.bin", encoded_instructions)
     F32IS_Writer.save_hex("sum_program.hex", encoded_instructions)
 
-    # Reporte rápido en consola
-    print(f"\n{'#'*10} REPORTE FINAL {'#'*10}")
+    # PASO C: Reporte de depuración en consola
+    print(f"\n{'#'*10} REPORTE FINAL DE ENSAMBLADO {'#'*10}")
+    print(f"{'ADDR':<6} | {'CONTENIDO HEX':<13} | {'OP'}")
+    print("-" * 35)
     for i, bin_str in enumerate(encoded_instructions):
         print(f"PC {i*4:02d} | Hex: {int(bin_str, 2):08X} | {program_asm[i].op}")
 
 except Exception as e:
-    print(f" Error en el proceso: {e}")
+    print(f" Error crítico en el proceso: {e}")
+
+# ==============================================================================
+# NOTA: Para instrucciones seguras, use el prefijo '@' en 'op' (ej: "@mul").
+# El motor activará automáticamente el bit de seguridad y usará el banco Secure.
+# ==============================================================================
+
+# --- Definición del Programa con Sesión Segura ---
+program_asm = [
+    Instruction(op="addi", rd="r1", rn="r0", imm=4),    # PC 00
+    Instruction(op="login", imm=0xBEEF0),               # PC 04
+    Instruction(op="li", rd="r2", imm=100),             # PC 08
+    Instruction(op="@mul", rd="r3", rn="r1", rm="r2"),  # PC 12
+    Instruction(op="send", rd="ax", rn="r0"),           # PC 16
+    Instruction(op="send", rd="bx", rn="r3"),           # PC 20
+    
+    # AQUÍ ESTABA EL ERROR: Cambiamos cx="cx" por rd="cx"
+    Instruction(op="paddi", rd="cx", rn="ax", imm=1),   # PC 24
+    
+    Instruction(op="@psub", rd="dx", rn="bx", rm="cx"), # PC 28
+    Instruction(op="quit"),                             # PC 32
+    Instruction(op="recv", rd="dx", rn="r4")            # PC 36
+]
+
+# --- Proceso de Codificación y Escritura ---
+try:
+    # PASO A: Codificar cada objeto Instruction a una cadena binaria de 32 bits
+    # Se encarga de manejar el bit P (@), los opcodes de login/quit y el banco SECURE.
+    encoded_instructions = [inst.encode() for inst in program_asm]
+
+    # PASO B: Persistencia de archivos
+    # Generamos la salida para el simulador y el binario para el hardware real.
+    F32IS_Writer.save_bin("secure_session.bin", encoded_instructions)
+    F32IS_Writer.save_hex("secure_session.hex", encoded_instructions)
+
+    # PASO C: Reporte de depuración en consola
+    # Este reporte ayuda a verificar que los saltos de PC (de 4 en 4) y los HEX sean correctos.
+    print(f"\n{'#'*15} F32IS SECURE SESSION REPORT {'#'*15}")
+    print(f"{'PC ADDR':<8} | {'HEX CONTENT':<13} | {'ASM MNEMONIC'}")
+    print("-" * 45)
+    
+    for i, bin_str in enumerate(encoded_instructions):
+        hex_val = f"{int(bin_str, 2):08X}"
+        # Mostramos la operación original del objeto para comparar
+        original_op = program_asm[i].op 
+        print(f"0x{i*4:02X}     | {hex_val}    | {original_op}")
+
+    print(f"\n{'#'*18} ASSEMBLY COMPLETE {'#'*18}")
+
+except Exception as e:
+    # Captura errores de registros mal escritos o inmediatos fuera de rango
+    print(f" Critical error during assembly: {e}")
