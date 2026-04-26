@@ -11,6 +11,8 @@ class Instruction:
     imm: Optional[int] = None
     is_secure: bool = False    # El bit 'P' de la especificación
 
+    
+
     def encode(self) -> str:
         """Punto de entrada principal para codificar a binario (32 bits)"""
        # Lista completa de instrucciones Tipo R según el ISA
@@ -28,6 +30,16 @@ class Instruction:
         tipo_b = ["beq", "bne"]
 
         tipo_j = ["jal", "j"]
+
+        tipo_pr = ["padd", "psub", "pmul"]
+
+        tipo_pi = ["paddi", "psubi"]
+
+        tipo_t = ["send", "recv"]
+
+        if self.op.startswith("@"):
+            self.is_secure = True
+            self.op = self.op[1:] # Quitamos el @ para buscar el opcode normal
         
         
         if self.op in tipo_r: return F32IS_Encoder.encode_r(self)
@@ -35,6 +47,9 @@ class Instruction:
         if self.op in tipo_m: return F32IS_Encoder.encode_m(self)
         if self.op in tipo_b: return F32IS_Encoder.encode_b(self)
         if self.op in tipo_j: return F32IS_Encoder.encode_j(self)
+        if self.op in tipo_pr: return F32IS_Encoder.encode_pr(self)
+        if self.op in tipo_pi: return F32IS_Encoder.encode_pi(self)
+        if self.op in tipo_t: return F32IS_Encoder.encode_t(self)
         
 
         # ... más tipos adelante
@@ -177,6 +192,67 @@ class F32IS_Encoder:
         
         return p + opcode + rd + imm21
     
+    # Mapeo de registros seguros (ax=0, bx=1, ..., hx=7)
+    SECURE_REGS = {
+        "ax": 0, "bx": 1, "cx": 2, "dx": 3,
+        "ex": 4, "fx": 5, "gx": 6, "hx": 7
+    }
+
+    @staticmethod
+    def encode_pr(inst: Instruction) -> str:
+        """
+        Formato Tipo PR: P(1)|opcode(5)|func4(4)|sd(3)|sn(3)|sm(3)|sf(3)|func10(10)
+        """
+        p = "1" # Siempre 1 para estas extensiones
+        opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b00010), '05b')
+        func4 = format(F32IS_Encoder.FUNC4_ALU.get(inst.op, 0b0010), '04b')
+        
+        # Registros de 3 bits
+        sd = format(inst.rd or 0, '03b')
+        sn = format(inst.rn or 0, '03b')
+        sm = format(inst.rm or 0, '03b')
+        sf = format(inst.sf or 0, '03b')
+        
+        func10 = "0000000000" # Bits de relleno o funciones extra
+        
+        return p + opcode + func4 + sd + sn + sm + sf + func10
+
+    @staticmethod
+    def encode_pi(inst: Instruction) -> str:
+        """
+        Formato Tipo PI: P(1)|opcode(5)|func4(4)|sd(3)|sn(3)|imm16(16)
+        """
+        p = "1"
+        opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b00011), '05b')
+        func4 = format(F32IS_Encoder.FUNC4_ALU.get(inst.op, 0b0010), '04b')
+        
+        sd = format(inst.rd or 0, '03b')
+        sn = format(inst.rn or 0, '03b')
+        
+        # Inmediato más largo (16 bits)
+        imm_val = inst.imm or 0
+        imm16 = format(imm_val & 0xFFFF, '016b')
+        
+        return p + opcode + func4 + sd + sn + imm16
+    
+    @staticmethod
+    def encode_t(inst: Instruction) -> str:
+        """
+        Formato Tipo T: P(1) | opcode(5) | func4(4) | sd(3) | rn(5) | func14(14)
+        """
+        p = "1" # Estas instrucciones requieren sesión iniciada (Hardware seguro)
+        opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b10000), '05b')
+        
+        # func4: Diferenciamos entre send (0000) y recv (0001)
+        func4 = "0000" if inst.op == "send" else "0001"
+        
+        sd = format(inst.rd or 0, '03b')  # Registro seguro (ax-hx)
+        rn = format(inst.rn or 0, '05b')  # Registro general (ra, sp, r0...)
+        
+        func14 = "0" * 14 # Bits de control adicionales
+        
+        return p + opcode + func4 + sd + rn + func14
+    
 
 
 # --- Pruebas de instrucciones tipo R ---
@@ -283,3 +359,55 @@ print(f"JAL (ra, 1000): {inst_jal.encode()}")
 # rd: zero (0), imm: -20 (salto hacia atrás)
 inst_j = Instruction(op="j", rd=0, imm=-20)
 print(f"J (offset -20): {inst_j.encode()}")
+
+# --- PRUEBAS SEGURIDAD (PR/PI) ---
+print(f"\n{'-'*20} TIPO PR / PI (Secure) {'-'*20}")
+
+# 1. padd ax, bx, cx (PR)
+# ax=0, bx=1, cx=2. Opcode padd=00010
+inst_pr = Instruction(op="padd", rd=0, rn=1, rm=2, is_secure=True)
+print(f"PADD (ax, bx, cx): {inst_pr.encode()}")
+
+# 2. paddi ax, bx, 100 (PI)
+# ax=0, bx=1, imm=100. Opcode paddi=00011
+inst_pi = Instruction(op="paddi", rd=0, rn=1, imm=100, is_secure=True)
+print(f"PADDI (ax, bx, 100): {inst_pi.encode()}")
+
+# --- PRUEBAS TIPO T (Transporte) ---
+print(f"\n{'-'*20} TIPO T {'-'*20}")
+
+# 1. send ax, r0
+# P(1) | Op(10000) | F4(0000) | sd(000) | rn(01110) | F14(...)
+# r0 es 14, ax es 0
+inst_send = Instruction(op="send", rd=0, rn=14)
+print(f"SEND (ax, r0): {inst_send.encode()}")
+
+# 2. recv bx, r1
+# P(1) | Op(10000) | F4(0001) | sd(001) | rn(01111) | F14(...)
+# r1 es 15, bx es 1
+inst_recv = Instruction(op="recv", rd=1, rn=15)
+print(f"RECV (bx, r1): {inst_recv.encode()}")
+
+
+# --- PRUEBA DE INSTRUCCIÓN CON @ ---
+print(f"\n{'-'*20} PRUEBA PREFIJO @ {'-'*20}")
+
+# r3=17, r1=15, r2=16 (basado en tu tabla de registros)
+inst_at = Instruction(op="@mul", rd=17, rn=15, rm=16)
+
+# Al llamar a encode(), el bit P debería ser '1'
+bin_at = inst_at.encode()
+
+print(f"Instrucción original: @mul r3, r1, r2")
+print(f"Binario generado:    {bin_at}")
+print(f"Bit P (seguridad):   {bin_at[0]} <--- Debe ser 1")
+
+# r3=17, r1=15, r2=16 (basado en tu tabla de registros)
+inst_at = Instruction(op="mul", rd=17, rn=15, rm=16)
+
+# Al llamar a encode(), el bit P debería ser '1'
+bin_at = inst_at.encode()
+
+print(f"Instrucción original: mul r3, r1, r2")
+print(f"Binario generado:    {bin_at}")
+print(f"Bit P (seguridad):   {bin_at[0]} <--- Debe ser 0")
