@@ -26,11 +26,15 @@ class Instruction:
         tipo_m = ["ldw", "ldh", "ldb", "stw", "sth", "stb"]
 
         tipo_b = ["beq", "bne"]
+
+        tipo_j = ["jal", "j"]
+        
         
         if self.op in tipo_r: return F32IS_Encoder.encode_r(self)
         if self.op in tipo_i: return F32IS_Encoder.encode_i(self)
         if self.op in tipo_m: return F32IS_Encoder.encode_m(self)
         if self.op in tipo_b: return F32IS_Encoder.encode_b(self)
+        if self.op in tipo_j: return F32IS_Encoder.encode_j(self)
         
 
         # ... más tipos adelante
@@ -155,6 +159,24 @@ class F32IS_Encoder:
         
         return p + opcode + func4 + rd + rs1 + imm12
     
+    @staticmethod
+    def encode_j(inst: Instruction) -> str:
+        """
+        Formato Tipo J: P(1) | opcode(5) | rd(5) | imm21(21)
+        """
+        p = "1" if inst.is_secure else "0"
+        # jal tiene opcode 01001
+        opcode = format(F32IS_Encoder.OPCODES.get(inst.op, 0b01001), '05b')
+        
+        rd = format(inst.rd or 0, '05b')
+        
+        # Inmediato de 21 bits en complemento a dos
+        imm_val = inst.imm or 0
+        # Máscara de 21 bits: (1 << 21) - 1 = 0x1FFFFF
+        imm21 = format(imm_val & 0x1FFFFF, '021b')
+        
+        return p + opcode + rd + imm21
+    
 
 
 # --- Pruebas de instrucciones tipo R ---
@@ -247,3 +269,17 @@ print(f"beq r1, label \(forward)\:  {inst_beq.encode()}")
 # Aquí verás el complemento a dos (111111111000)
 inst_beq_back = Instruction(op="beq", rd=15, imm=-8)
 print(f"beq r1, label \(backward)\: {inst_beq_back.encode()}")
+
+
+# --- PRUEBAS TIPO J ---
+print(f"\n{'-'*20} TIPO J {'-'*20}")
+
+# 1. jal ra, label (ra=1, saltando 1000 bytes hacia adelante)
+# Formato: P(0) | Op(01001) | rd(00001) | imm21(000000000001111101000...)
+inst_jal = Instruction(op="jal", rd=1, imm=1000)
+print(f"JAL (ra, 1000): {inst_jal.encode()}")
+
+# 2. j label (pseudo-instrucción: jal zero, offset)
+# rd: zero (0), imm: -20 (salto hacia atrás)
+inst_j = Instruction(op="j", rd=0, imm=-20)
+print(f"J (offset -20): {inst_j.encode()}")
