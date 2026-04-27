@@ -133,5 +133,22 @@ main_if_end_7:    # addr=448
 main_if_end_8:    # addr=448
     beqz lr, 11
     beq lr, zero, 11
+    bgt r3, r4, 2
+    blt r5, r6, 10
+    bge r7, r0, 20
+    addi sp, sp, -8
+    add r3, r4, r5
+    sub r3, r4, r5
+    mul r3, r4, r5
+    div r3, r4, r5
+    mod r3, r4, r5
+    and r3, r4, r5
+    orr r3, r4, r5
+    xor r3, r4, r5
+    sll r3, r4, r5
+    srl r3, r4, r5
+    seq r3, r4, r5
+    send ax, r4
+    recv r4,bx
     ret
     

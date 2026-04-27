@@ -67,19 +67,20 @@ class Instruction:
         # Check if the current operation (ignoring the '@' prefix) belongs to the secure set
         is_secure_instr = self.op.strip("@") in secure_ops
 
+        op_clean = self.op.strip("@")
+
         # --- Resolve Destination Register (rd) ---
         if self.rd is not None and isinstance(self.rd, str):
-            # For PR/PI and send/recv, rd maps to the Secure Bank (sd)
-            # This follows the F32IS specification where rd is a 3-bit field for these types
-            is_rd_secure = is_secure_instr 
+            # Es Seguro si la instrucción es segura, EXCEPTO en 'recv'
+            # (En 'recv rd, sm', el destino 'rd' es el Banco General)
+            is_rd_secure = is_secure_instr and op_clean != "recv"
             self.rd = F32IS_Encoder.get_reg_addr(self.rd, is_rd_secure)
 
         # --- Resolve First Source Register (rn) ---
         if self.rn is not None and isinstance(self.rn, str):
-            # Special logic for T-type (Transfer) instructions:
-            # 'send' and 'recv' utilize the General Purpose Bank (5 bits) for rn,
-            # while standard secure arithmetic uses the Secure Bank (3 bits).
-            is_rn_secure = is_secure_instr and self.op.strip("@") not in ["send", "recv"]
+            # Es Seguro si la instrucción es segura, EXCEPTO en 'send'
+            # (En 'send sd, rn', el origen 'rn' es el Banco General)
+            is_rn_secure = is_secure_instr and op_clean != "send"
             self.rn = F32IS_Encoder.get_reg_addr(self.rn, is_rn_secure)
 
         # --- Resolve Second Source (rm) and Fourth Field (sf) ---
@@ -621,7 +622,8 @@ class F32IS_Encoder:
         Encodes Type-T instructions (Secure Bus Transport).
         
         Hardware Map (32 bits):
-        [func14: 31-18] [rn: 17-13] [sd: 12-10] [func4: 9-6] [opcode: 5-1] [P: 0]
+        DESGLOSE POR INSTRUCCIÓN:
+
         
         Field Description:
         - func14: Bus control padding or extensions (currently zeros).
@@ -632,35 +634,37 @@ class F32IS_Encoder:
         - P: Security bit (forced to 1 to enable secure bus).
         """
         # Security bit: Forced to 1 to authorize cross-bank movement
-        p = "1"
+        p = "1" 
         
         # Opcode Retrieval: Fetches 'send'/'recv' from the architecture table.
         # Typically maps to 0b10000.
         opcode_val = F32IS_Encoder.OPCODES.get(inst.op, 0b10000)
         opcode = format(opcode_val, '05b')
+
+        sd = "000"      #rd send
+        rd = "0000"     #rd recv
+        rn = "0000"     #rn send
+        sm = "000"      #rn recv
         
         # Transport Logic & Register Assignment:
         # 'send': GPR (rn) -> Secure (sd)
         # 'recv': Secure (sd) -> GPR (rn)
         if inst.op == "send":
             func4 = "0000"
-            sd_val = inst.rd # Destination: Secure Register
-            rn_val = inst.rn # Source: GPR
+            sd_bin = format(inst.rd, '03b') 
+            rn_bin = format(inst.rn, '05b')
+            func12 = "0" * 12
+
+            return func12 + rn_bin + "00" + sd_bin + func4 + opcode + p
+
         else: # recv
             func4 = "0001"
-            rn_val = inst.rd # Destination: GPR
-            sd_val = inst.rn # Source: Secure Register
+            rd_bin = format(inst.rd, '05b') # Destination: GPR 
+            sm_bin = format(inst.rn, '03b') # Source: Secure Register
+            func13 = "0" * 13
 
-        # Formatting with specific bank widths
-        sd = format(sd_val or 0, '03b')  # 3-bit Secure index
-        rn = format(rn_val or 0, '05b')  # 5-bit GPR index
-        
-        # 14-bit Padding/Control
-        func14 = "0" * 14
-        
-        # Concatenation from MSB (left) to LSB (right)
-        # [func14][rn][sd][func4][opcode][p]
-        return func14 + rn + sd + func4 + opcode + p
+            return func13 + sm_bin + "0" + rd_bin + func4 + opcode + p
+
     
     @staticmethod
     def encode_s(inst: Instruction) -> str:
