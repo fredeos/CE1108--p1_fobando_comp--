@@ -1,5 +1,5 @@
 
-pseudo_instr = ["call", "beqz", "jump", "ret", "nop", "seqz", "la", "li", "pla", "pli"]
+pseudo_instr = ["call", "beqz", "jmp", "ret", "nop", "seqz"]
 
 instrucciones = {
     # Clase 1 — R y PR (op rd, rn, rm)
@@ -46,5 +46,17 @@ instrucciones = {
 
     # Clase Mov
     "mov": "claseMov", "pmov": "claseMov", "movi": "claseMov", "pmovi": "claseMov",
+
+    # Clase L — (li/la rd, imm)
+    "li": "claseL", "la": "claseL", "pli": "claseL", "pla": "claseL",
 }
 
+registros_normales = {
+    "zero", "ra", "sp", "pc", "lr",
+    "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8",
+    "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
+    "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+    "delta", "max"
+}
+
+registros_seguros = {"ax", "bx", "cx", "dx", "ex", "fx", "gx", "hx"}
