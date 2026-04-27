@@ -153,7 +153,7 @@ class Instruction:
         if self.op in tipo_f: return F32IS_Encoder.encode_f(self)
         if self.op in tipo_pr: return F32IS_Encoder.encode_pr(self)
         if self.op in tipo_pi: return F32IS_Encoder.encode_pi(self)
-        if self.op in tipo_v: return F32IS_Encoder.encode_v(self)  # Added Vault dispatch
+        if self.op in tipo_v: return F32IS_Encoder.encode_v(self)
         if self.op in tipo_t: return F32IS_Encoder.encode_t(self)
         if self.op in tipo_sys: return F32IS_Encoder.encode_s(self)
 
@@ -693,6 +693,52 @@ class F32IS_Encoder:
         # [31:11] + [10] + [9:6] + [5:1] + [0]
         return imm21 + bit10 + func4 + opcode + p
 
+    @staticmethod
+    def encode_v(inst: Instruction) -> str:
+        """
+        Encodes Type-V instructions (Vault / Memory Access).
+
+        Hardware Map (32 bits):
+        [imm16: 31-16] [sn: 15-13] [sd: 12-10] [W: 9] [H: 8] [B: 7] [S: 6] [opcode: 5-1] [P: 0]
+
+        Field Description:
+        - imm16: 16-bit immediate (Offset/Address).
+        - sn: Source/Base register (3-bit Secure Bank).
+        - sd: Destination register (3-bit Secure Bank).
+        - W, H, B: Width selectors (Word, Half-word, Byte).
+        - S: Operation selection (0: Sum/Add, 1: Sub/Subtract).
+        - opcode: Instruction identifier (fetched from OPCODES).
+        - P: Security bit (LSB).
+        """
+        # Security bit
+        p = "1" if inst.is_secure else "0"
+
+        # Opcode Retrieval
+        opcode_val = F32IS_Encoder.OPCODES.get(inst.op, 0b00110)  # Default Vault opcode
+        opcode = format(opcode_val, '05b')
+
+        # S (Bit 6): Operación (Suma/Resta para el cálculo de dirección)
+        # Se asume que inst.sub_op o similar define si es suma o resta
+        s_bit = "1" if getattr(inst, 'use_sub', False) else "0"
+
+        # B, H, W (Bits 7, 8, 9): Selección de ancho de datos
+        # Estos bits son excluyentes según el tipo de instrucción (ldb, ldh, ldw, etc.)
+        b_bit = "1" if "b" in inst.op.lower() else "0"
+        h_bit = "1" if "h" in inst.op.lower() else "0"
+        w_bit = "1" if "w" in inst.op.lower() else "0"
+
+        # Registros del Banco Seguro (3 bits: ax-hx)
+        sd = format(inst.rd or 0, '03b')
+        sn = format(inst.rn or 0, '03b')
+
+        # Inmediato de 16 bits (PC-relative o Absolute Offset)
+        imm_val = inst.imm or 0
+        imm16 = format(imm_val & 0xFFFF, '016b')
+
+        # Concatenación final (MSB -> LSB)
+        # [imm16][sn][sd][W][H][B][S][opcode][P]
+        return imm16 + sn + sd + w_bit + h_bit + b_bit + s_bit + opcode
+
 
 class F32IS_Writer:
     """
@@ -1031,8 +1077,6 @@ program_asm = [
         rd="ax",
         rn="bx",
         rm="cx",
-        op1="add",
-        op2="add",
         is_secure=True
     ),
 

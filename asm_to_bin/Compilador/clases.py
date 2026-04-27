@@ -1,12 +1,11 @@
 
-pseudo_instr = ["call", "beqz", "jmp", "ret", "nop", "seqz"]
 
 instrucciones = {
     # Clase 1 — R y PR (op rd, rn, rm)
     "add": "clase1",   "sub": "clase1",   "mul": "clase1",
     "div": "clase1",   "mod": "clase1",   "and": "clase1",
     "orr": "clase1",   "xor": "clase1",   "sll": "clase1",
-    "srl": "clase1",   "seq": "clase1",
+    "srl": "clase1",   "seq": "clase1",   "seqz": "clase1",
     "padd": "clase1",  "psub": "clase1",  "pmul": "clase1",
     "pdiv": "clase1",  "pmod": "clase1",  "pand": "clase1",
     "porr": "clase1",  "pxor": "clase1",  "pseq": "clase1",
@@ -28,12 +27,16 @@ instrucciones = {
     "ldvw": "clase3", "ldvh": "clase3", "ldvb": "clase3",
     "stvw": "clase3", "stvh": "clase3", "stvb": "clase3",
 
+    # Clase 4 - ret y nop
+    "ret": "clase4",  "nop": "clase4",
+
     # Clase B — (op rn, rm, etiqueta)
     "beq": "claseB",  "bne": "claseB",  "bgt": "claseB",
     "blt": "claseB",  "bge": "claseB",  "ble": "claseB",
+    "beqz": "claseB",
 
-    # Clase J — (jal rd, imm)
-    "jal": "claseJ",
+    # Clase J — (jal rd, imm), call y jmp
+    "jal": "claseJ", "call": "claseJ", "jmp": "claseJ",
 
     # Clase S — (login imm / quit)
     "login": "claseS", "quit": "claseS",
