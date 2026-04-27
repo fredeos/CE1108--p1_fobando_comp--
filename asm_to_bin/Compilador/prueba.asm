@@ -150,5 +150,10 @@ main_if_end_8:    # addr=448
     seq r3, r4, r5
     send ax, r4
     recv r4,bx
+    jal zero, 270
+    jmp 270
+    call 270
+    login 270
+    
     ret
     

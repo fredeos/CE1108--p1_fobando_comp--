@@ -685,17 +685,15 @@ class F32IS_Encoder:
         # func4 (9:6): 0000 para login, 0001 para quit
         func4 = "0000" if inst.op == "login" else "0001"
         
-        # Bit 10: Padding para completar la estructura
-        bit10 = "0"
         
         # Inmediato de 21 bits (31:11)
         # En 'login', imm es la llave. En 'quit', suele ser 0.
         imm_val = inst.imm or 0
-        imm21 = format(imm_val & 0x1FFFFF, '021b')
+        imm20 = format(imm_val & 0x1FFFFF, '020b')
         
         # Retorno de MSB (izquierda) a LSB (derecha)
-        # [31:11] + [10] + [9:6] + [5:1] + [0]
-        return imm21 + bit10 + func4 + opcode + p
+        # [31:12] + [00] + [9:6] + [5:1] + [0]
+        return imm20 + "00" + func4 + opcode + p
 
 
     @staticmethod
