@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Union
+import re
 
 from ast_nodes import (
     AssignmentNode,
@@ -30,6 +31,7 @@ from symbol_table import DATA_BASE, MEMORY_SIZE, Scope, Symbol, SymbolTable, Typ
 
 WORD_SIZE = 4
 TEMP_REGS = [f"r{i}" for i in range(16)]
+SECURE_REGS = ["ax", "bx", "cx", "dx", "ex", "fx", "gx", "hx"]
 SAVE_REGS = ["ra"]
 BRANCH_IMMEDIATE_BITS = 12
 JUMP_IMMEDIATE_BITS = 21
@@ -504,6 +506,20 @@ class AssemblyGenerator:
             return "ldb"
         return "ldw"
 
+    def _vault_load_op(self, type_info: TypeInfo) -> str:
+        """Retorna la carga segura correspondiente a un acceso sobre vault."""
+
+        if type_info.name == "char" and not type_info.is_pointer and not type_info.is_array:
+            return "ldvb"
+        return "ldvw"
+
+    def _vault_store_op(self, type_info: TypeInfo) -> str:
+        """Retorna el store seguro correspondiente a un acceso sobre vault."""
+
+        if type_info.name == "char" and not type_info.is_pointer and not type_info.is_array:
+            return "stvb"
+        return "stvw"
+
     def _type_size(self, type_info: TypeInfo) -> int:
         """Retorna el tamano en bytes de un tipo materializado."""
 
@@ -512,6 +528,113 @@ class AssemblyGenerator:
         if type_info.name == "char":
             return 1
         return WORD_SIZE
+
+    def _is_param_register(self, operand: str) -> bool:
+        """Indica si un operando pertenece al banco de parametros/regulares."""
+
+        return operand.startswith("p") and operand[1:].isdigit()
+
+    def _secure_alias(self, operand: str) -> str:
+        """Mapea temporales regulares a registros del banco seguro."""
+
+        if operand in SECURE_REGS:
+            return operand
+        if operand.startswith("r") and operand[1:].isdigit():
+            index = int(operand[1:])
+            if 0 <= index < len(SECURE_REGS):
+                return SECURE_REGS[index]
+        return operand
+
+    def _secure_memory_operand(self, operand: str) -> str:
+        """Ajusta la base de un operando memoria al banco seguro si aplica."""
+
+        match = re.match(r"^(-?\d+)\(([^)]+)\)$", operand)
+        if not match:
+            return operand
+        offset, base = match.groups()
+        return f"{offset}({self._secure_alias(base)})"
+
+    def _resolve_secure_render(
+        self,
+        op: str,
+        args: List[str],
+    ) -> tuple[str, List[str], bool]:
+        """Traduce una instruccion marcada como secure a su variante S/T."""
+
+        if op in {"ldvw", "ldvh", "ldvb", "stvw", "stvh", "stvb"} and len(args) == 2:
+            mapped_reg = self._secure_alias(args[0])
+            mapped_mem = self._secure_memory_operand(args[1])
+            return (op, [mapped_reg, mapped_mem], True)
+
+        if op in {"paddadd", "pxorxor", "pslladd", "psrladd"} and len(args) == 4:
+            mapped_args = [self._secure_alias(arg) for arg in args]
+            if all(arg in SECURE_REGS for arg in mapped_args):
+                return (op, mapped_args, True)
+            return (op, args, False)
+
+        if op == "mov" and len(args) == 2:
+            dst, src = args
+            mapped_dst = self._secure_alias(dst)
+            mapped_src = self._secure_alias(src)
+            if src == "zero" and mapped_dst in SECURE_REGS:
+                return ("pmovi", [mapped_dst, "0"], True)
+            if mapped_dst in SECURE_REGS and mapped_src in SECURE_REGS:
+                return ("pmov", [mapped_dst, mapped_src], True)
+            if mapped_dst in SECURE_REGS and mapped_src not in SECURE_REGS:
+                return ("send", [mapped_dst, src], True)
+            if mapped_src in SECURE_REGS and mapped_dst not in SECURE_REGS:
+                return ("recv", [mapped_src, dst], True)
+            return (op, args, False)
+
+        if op == "li" and len(args) == 2:
+            mapped_dst = self._secure_alias(args[0])
+            if mapped_dst in SECURE_REGS:
+                return ("pmovi", [mapped_dst, args[1]], True)
+            return (op, args, False)
+
+        if op == "seqz" and len(args) == 2:
+            dst, src = args
+            mapped_dst = self._secure_alias(dst)
+            mapped_src = self._secure_alias(src)
+            if mapped_dst in SECURE_REGS and mapped_src in SECURE_REGS:
+                return ("pseqi", [mapped_dst, mapped_src, "0"], True)
+            return (op, args, False)
+
+        if op == "addi" and len(args) == 3:
+            dst, src, imm = args
+            mapped_dst = self._secure_alias(dst)
+            mapped_src = self._secure_alias(src)
+            if mapped_dst not in SECURE_REGS or mapped_src not in SECURE_REGS:
+                return (op, args, False)
+            try:
+                value = int(imm)
+            except ValueError:
+                return ("paddi", [mapped_dst, mapped_src, imm], True)
+            if value < 0:
+                return ("psubi", [mapped_dst, mapped_src, str(abs(value))], True)
+            return ("paddi", [mapped_dst, mapped_src, str(value)], True)
+
+        secure_op_map = {
+            "add": "padd",
+            "sub": "psub",
+            "mul": "pmul",
+            "div": "pdiv",
+            "mod": "pmod",
+            "and": "pand",
+            "orr": "porr",
+            "xor": "pxor",
+            "muli": "pmuli",
+            "divi": "pdivi",
+            "modi": "pmodi",
+            "andi": "pandi",
+            "orri": "porri",
+            "xori": "pxori",
+        }
+        if op in secure_op_map and len(args) >= 3:
+            mapped_args = [self._secure_alias(arg) for arg in args]
+            if all(arg in SECURE_REGS for arg in mapped_args[:3]):
+                return (secure_op_map[op], mapped_args, True)
+        return (op, args, False)
 
     def _local_slot_offset(self, symbol: Symbol) -> int:
         """Calcula el offset real de una variable local dentro del frame."""
@@ -1051,7 +1174,13 @@ class AssemblyGenerator:
         if isinstance(node, IndexAccessNode):
             addr_reg = self._emit_address(node)
             result_reg = self._alloc_temp(node)
-            self._emit_user(self._type_load_op(target_type), result_reg, self._format_memory_operand(0, addr_reg))
+            target_base_type = self._infer_type(node.target)
+            load_op = (
+                self._vault_load_op(target_type)
+                if target_base_type is not None and target_base_type.name == "vault"
+                else self._type_load_op(target_type)
+            )
+            self._emit_user(load_op, result_reg, self._format_memory_operand(0, addr_reg))
             self._free_temp(addr_reg)
             return result_reg
 
@@ -1069,7 +1198,13 @@ class AssemblyGenerator:
 
         if isinstance(node, IndexAccessNode):
             addr_reg = self._emit_address(node)
-            self._emit_user(self._type_store_op(target_type), value_reg, self._format_memory_operand(0, addr_reg))
+            target_base_type = self._infer_type(node.target)
+            store_op = (
+                self._vault_store_op(target_type)
+                if target_base_type is not None and target_base_type.name == "vault"
+                else self._type_store_op(target_type)
+            )
+            self._emit_user(store_op, value_reg, self._format_memory_operand(0, addr_reg))
             self._free_temp(addr_reg)
             return
 
@@ -1179,7 +1314,13 @@ class AssemblyGenerator:
             if target_type is None or not self._ensure_codegen_type(target_type, node, "acceso indexado"):
                 return result_reg
             addr_reg = self._emit_address(node)
-            self._emit_user(self._type_load_op(target_type), result_reg, self._format_memory_operand(0, addr_reg))
+            base_type = self._infer_type(node.target)
+            load_op = (
+                self._vault_load_op(target_type)
+                if base_type is not None and base_type.name == "vault"
+                else self._type_load_op(target_type)
+            )
+            self._emit_user(load_op, result_reg, self._format_memory_operand(0, addr_reg))
             self._free_temp(addr_reg)
             return result_reg
 
@@ -1223,6 +1364,11 @@ class AssemblyGenerator:
         if result_type is None or not self._ensure_codegen_type(result_type, node, f'operacion "{node.operator}"'):
             return self._alloc_temp(node)
 
+        if self.current_function_secure:
+            fused_result = self._emit_secure_fused_binary(node)
+            if fused_result is not None:
+                return fused_result
+
         if node.operator == "~":
             self.error(node, "unsupported_operator_codegen", 'la ISA actual no define una instruccion para el operador "~".')
             return self._alloc_temp(node)
@@ -1246,6 +1392,32 @@ class AssemblyGenerator:
         op_name = ARITHMETIC_OPS[node.operator]
         self._emit_user(op_name, left_reg, left_reg, right_reg)
         return left_reg
+
+    def _emit_secure_fused_binary(self, node: BinaryOpNode) -> Optional[str]:
+        """Aprovecha instrucciones PR de cuatro operandos cuando la forma coincide."""
+
+        if not isinstance(node.left, BinaryOpNode):
+            return None
+
+        if node.operator == "^" and node.left.operator == "^":
+            first_reg = self._emit_expression(node.left.left)
+            second_reg = self._emit_expression(node.left.right)
+            third_reg = self._emit_expression(node.right)
+            self._emit("pxorxor", first_reg, first_reg, second_reg, third_reg, secure=True)
+            self._free_temp(third_reg)
+            self._free_temp(second_reg)
+            return first_reg
+
+        if node.operator == "+" and node.left.operator == "+":
+            first_reg = self._emit_expression(node.left.left)
+            second_reg = self._emit_expression(node.left.right)
+            third_reg = self._emit_expression(node.right)
+            self._emit("paddadd", first_reg, first_reg, second_reg, third_reg, secure=True)
+            self._free_temp(third_reg)
+            self._free_temp(second_reg)
+            return first_reg
+
+        return None
 
     def _emit_compare_value(self, node: BinaryOpNode) -> str:
         """Materializa una comparacion booleana en 0 o 1."""
@@ -1614,7 +1786,7 @@ class AssemblyGenerator:
                     relative_offset = target_index - current_index
                     self._validate_relative_immediate(item, relative_offset, current_index)
                     rendered_args.append(str(relative_offset))
-                    resolved_targets.append(f'{arg.name} @ {target_index * WORD_SIZE}')
+                    resolved_targets.append(f"{arg.name} @ {target_index * WORD_SIZE}")
                 elif isinstance(arg, AddressRef):
                     if self.symbol_table is None:
                         self.diagnostics.append(
@@ -1668,7 +1840,11 @@ class AssemblyGenerator:
                 current_index += size
                 continue
 
-            op = f"@{item.op}" if item.secure else item.op
+            op = item.op
+            if item.secure:
+                op, rendered_args, translated = self._resolve_secure_render(op, rendered_args)
+                if not translated:
+                    op = f"@{op}"
             args_text = ", ".join(rendered_args)
             line = f"    {op}"
             if args_text:
@@ -1699,21 +1875,31 @@ class AssemblyGenerator:
         """Expande la carga de inmediatos grandes en varias instrucciones."""
 
         lines: List[str] = []
-        op_prefix = "@" if secure else ""
+        if secure:
+            immediate_op = "pmovi"
+            add_op_positive = "paddi"
+            add_op_negative = "psubi"
+        else:
+            immediate_op = pseudo_name
+            add_op_positive = "addi"
+            add_op_negative = "subi"
 
         if SIGNED_IMMEDIATE_MIN <= value <= SIGNED_IMMEDIATE_MAX:
-            line = f"    {op_prefix}{pseudo_name} {target}, {value}"
+            line = f"    {immediate_op} {target}, {value}"
             if comment:
                 line += f"    # {comment}"
             lines.append(line)
             return lines
 
-        first_line = f"    {op_prefix}li {target}, 0"
+        first_line = f"    {immediate_op} {target}, 0"
         if comment:
             first_line += f"    # {comment}"
         lines.append(first_line)
         for chunk in self._split_signed_immediate(value):
             if chunk == 0:
                 continue
-            lines.append(f"    {op_prefix}addi {target}, {target}, {chunk}")
+            if chunk < 0:
+                lines.append(f"    {add_op_negative} {target}, {target}, {abs(chunk)}")
+            else:
+                lines.append(f"    {add_op_positive} {target}, {target}, {chunk}")
         return lines

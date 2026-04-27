@@ -14,3 +14,9 @@ func int ajuste_seguro(int x){
     int y = x + 5;
     ret y;
 }
+
+@secure(0x44)
+func int mezcla_segura(int a, int b, int c){
+    int y = (a ^ b) ^ c;
+    ret y;
+}

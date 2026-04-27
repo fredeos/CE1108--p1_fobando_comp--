@@ -184,6 +184,26 @@ def format_semantic_error(diagnostic) -> str:
             f'Error [semantico] en linea {diagnostic.line}: '
             f'el tipo "{d["type_name"]}" de "{d["name"]}" debe declararse como "vault[<entero>]".'
         )
+    if code == "direct_vault_value_forbidden":
+        return (
+            f'Error [semantico] en linea {diagnostic.line}: '
+            'un acceso "vault[i]" no puede usarse solo; debe combinarse con otra variable o literal.'
+        )
+    if code == "neutral_vault_operation":
+        return (
+            f'Error [semantico] en linea {diagnostic.line}: '
+            f'no se permite operar un acceso vault con el neutro del operador "{d["operator"]}".'
+        )
+    if code == "vault_comparison_forbidden":
+        return (
+            f'Error [semantico] en linea {diagnostic.line}: '
+            f'no se permiten comparaciones que involucren accesos vault con "{d["operator"]}".'
+        )
+    if code == "vault_index_expression_forbidden":
+        return (
+            f'Error [semantico] en linea {diagnostic.line}: '
+            'no se permite usar un acceso "vault[i]" dentro del indice de otro acceso.'
+        )
 
     return f'Error [semantico] en linea {diagnostic.line}: error semantico no especificado.'
 

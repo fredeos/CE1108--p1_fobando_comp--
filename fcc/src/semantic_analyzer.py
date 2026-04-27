@@ -364,6 +364,7 @@ class SemanticAnalyzer:
             if symbol is None or symbol.type_info is None:
                 continue
 
+            self._validate_vault_expression_rules(declarator.initializer)
             init_type = self._infer_expression_type(declarator.initializer)
             if init_type and not self.is_assignable(symbol.type_info, init_type):
                 self.error(
@@ -493,6 +494,7 @@ class SemanticAnalyzer:
             return False
         if isinstance(node, ExpressionStmtNode):
             if node.expression is not None:
+                self._validate_vault_expression_rules(node.expression)
                 self._infer_expression_type(node.expression)
             return False
         if isinstance(node, BlockNode):
@@ -534,6 +536,7 @@ class SemanticAnalyzer:
             self.symbol_table.assign_local_offset(symbol)
 
             if declarator.initializer is not None:
+                self._validate_vault_expression_rules(declarator.initializer)
                 init_type = self._infer_expression_type(declarator.initializer)
                 if init_type and not self.is_assignable(type_info, init_type):
                     self.error(
@@ -548,6 +551,8 @@ class SemanticAnalyzer:
         """Valida compatibilidad de tipos en asignaciones simples y compuestas."""
 
         target_type = self._infer_lvalue_type(node.target)
+        self._validate_vault_assignment_rules(node)
+        self._validate_vault_expression_rules(node.value)
         value_type = self._infer_expression_type(node.value)
 
         if target_type is None or value_type is None:
@@ -706,6 +711,7 @@ class SemanticAnalyzer:
             )
             return
 
+        self._validate_vault_expression_rules(node.value)
         actual = self._infer_expression_type(node.value)
         if actual and not self.is_assignable(expected, actual):
             self.error(
@@ -733,6 +739,7 @@ class SemanticAnalyzer:
     def _require_bool_condition(self, expression, construct: str):
         """Exige que una condicion sea de tipo bool."""
 
+        self._validate_vault_expression_rules(expression)
         condition_type = self._infer_expression_type(expression)
         if condition_type is not None and not condition_type.is_bool:
             self.error(
@@ -742,6 +749,171 @@ class SemanticAnalyzer:
                 construct=construct,
                 actual_type=str(condition_type),
             )
+
+    def _validate_vault_expression_rules(self, expression):
+        """Aplica restricciones especiales sobre lecturas desde vault."""
+
+        if expression is None:
+            return
+
+        if self._is_vault_access(expression):
+            self.error(
+                expression.line,
+                expression.column,
+                "direct_vault_value_forbidden",
+            )
+
+        self._walk_vault_expression_rules(expression)
+
+    def _walk_vault_expression_rules(self, node):
+        """Recorre expresiones para detectar comparaciones o neutros con vault."""
+
+        if node is None:
+            return
+
+        if isinstance(node, BinaryOpNode):
+            left_has_vault = self._contains_vault_access(node.left)
+            right_has_vault = self._contains_vault_access(node.right)
+
+            if node.operator in EQUALITY_OPERATORS | RELATIONAL_OPERATORS:
+                if left_has_vault or right_has_vault:
+                    self.error(
+                        node.line,
+                        node.column,
+                        "vault_comparison_forbidden",
+                        operator=node.operator,
+                    )
+
+            if self._is_neutral_vault_operation(node, left_has_vault, right_has_vault):
+                self.error(
+                    node.line,
+                    node.column,
+                    "neutral_vault_operation",
+                    operator=node.operator,
+                )
+
+            self._walk_vault_expression_rules(node.left)
+            self._walk_vault_expression_rules(node.right)
+            return
+
+        if isinstance(node, UnaryOpNode):
+            if self._is_vault_access(node.operand):
+                self.error(
+                    node.operand.line,
+                    node.operand.column,
+                    "direct_vault_value_forbidden",
+                )
+            self._walk_vault_expression_rules(node.operand)
+            return
+
+        if isinstance(node, CallNode):
+            self._walk_vault_expression_rules(node.callee)
+            for arg in node.arguments:
+                if self._is_vault_access(arg):
+                    self.error(
+                        arg.line,
+                        arg.column,
+                        "direct_vault_value_forbidden",
+                    )
+                self._walk_vault_expression_rules(arg)
+            return
+
+        if isinstance(node, IndexAccessNode):
+            if self._contains_vault_access(node.index):
+                self.error(
+                    node.index.line,
+                    node.index.column,
+                    "vault_index_expression_forbidden",
+                )
+            self._walk_vault_expression_rules(node.target)
+            self._walk_vault_expression_rules(node.index)
+            return
+
+    def _validate_vault_assignment_rules(self, node: AssignmentNode):
+        """Aplica restricciones especiales a asignaciones sobre vault[i]."""
+
+        if not self._is_vault_access(node.target):
+            return
+
+        if self._contains_vault_access(node.target.index):
+            self.error(
+                node.target.index.line,
+                node.target.index.column,
+                "vault_index_expression_forbidden",
+            )
+
+        neutral_map = {
+            "+=": 0,
+            "-=": 0,
+            "|=": 0,
+            "^=": 0,
+            "<<=": 0,
+            ">>=": 0,
+            "*=": 1,
+            "/=": 1,
+            "%=": 1,
+        }
+        neutral = neutral_map.get(node.operator)
+        if neutral is not None and self._is_neutral_literal(node.value, neutral):
+            self.error(
+                node.line,
+                node.column,
+                "neutral_vault_operation",
+                operator=node.operator,
+            )
+
+    def _contains_vault_access(self, node) -> bool:
+        """Indica si una expresion contiene al menos un acceso vault[i]."""
+
+        if node is None:
+            return False
+        if self._is_vault_access(node):
+            return True
+        if isinstance(node, UnaryOpNode):
+            return self._contains_vault_access(node.operand)
+        if isinstance(node, BinaryOpNode):
+            return self._contains_vault_access(node.left) or self._contains_vault_access(node.right)
+        if isinstance(node, CallNode):
+            return self._contains_vault_access(node.callee) or any(
+                self._contains_vault_access(arg) for arg in node.arguments
+            )
+        if isinstance(node, IndexAccessNode):
+            return self._contains_vault_access(node.target) or self._contains_vault_access(node.index)
+        return False
+
+    def _is_vault_access(self, node) -> bool:
+        """Reconoce si un nodo representa una lectura o escritura sobre vault."""
+
+        if not isinstance(node, IndexAccessNode):
+            return False
+        target_type = self._infer_expression_type(node.target)
+        return target_type is not None and target_type.name == "vault"
+
+    def _is_neutral_literal(self, node, expected: int) -> bool:
+        """Indica si un literal entero/hex coincide con un valor concreto."""
+
+        if not isinstance(node, LiteralNode):
+            return False
+        if node.literal_type not in {"int", "hex"}:
+            return False
+        return int(str(node.value), 0) == expected
+
+    def _is_neutral_vault_operation(self, node: BinaryOpNode, left_has_vault: bool, right_has_vault: bool) -> bool:
+        """Detecta usos de vault[i] combinados con elementos neutros."""
+
+        if node.operator in {"+", "-", "|", "^", "<<", ">>"}:
+            return (
+                (left_has_vault and self._is_neutral_literal(node.right, 0))
+                or (right_has_vault and self._is_neutral_literal(node.left, 0))
+            )
+
+        if node.operator in {"*", "/", "%"}:
+            return (
+                (left_has_vault and self._is_neutral_literal(node.right, 1))
+                or (right_has_vault and self._is_neutral_literal(node.left, 1))
+            )
+
+        return False
 
     def _is_addressable(self, node) -> bool:
         """Indica si una expresion puede tomar direccion con '&'."""

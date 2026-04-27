@@ -14,6 +14,7 @@ func void main(){
     }
 
     total += ajuste_seguro(total);
+    total += mezcla_segura(total, 7, 3);
 
     if (total > 20) {
         global_base = total;
