@@ -130,3 +130,4 @@ main_if_end_7:    # addr=448
     ldw ra, 0(sp)
     addi sp, sp, -16
     ret
+pslladd ax, bx, cx, dx

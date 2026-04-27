@@ -96,6 +96,12 @@ def parse_instr(instr: str) -> Optional[Instruction]:
             imm = parse_immediate(mem.group(1))
             rn = parse_register(mem.group(2), seguro=es_segura)
 
+        case ("clase4"):
+            if op_clean == "ret":
+                #op = ("@" * is_secure) + "mov"
+                rd = "pc"
+                rn = "ra"
+
         case ("claseB"):
             rn = parse_register(operands[0], seguro=es_segura)
             if op_clean == "beqz":
