@@ -1,3 +1,5 @@
+"""Driver del parser y constructor del AST a partir del arbol sintactico."""
+
 from pathlib import Path
 import importlib.util
 import sys
@@ -20,6 +22,8 @@ GENERATED_PATH = PROJECT_ROOT / "generated" / "fcc" / "grammar"
 
 
 def load_generated_module(module_name: str):
+    """Carga un modulo generado por ANTLR desde la carpeta generated."""
+
     module_path = GENERATED_PATH / f"{module_name}.py"
 
     if not module_path.exists():
@@ -48,12 +52,18 @@ from lexer_driver import check_lexical_errors
 
 
 class SyntaxErrorListener(ErrorListener):
+    """Convierte errores crudos de ANTLR en mensajes mas utiles para FCC."""
+
     def __init__(self):
+        """Inicializa el listener y evita cascadas de errores duplicados."""
+
         super().__init__()
         self.has_error = False
         self._reported = False
 
     def _format_message(self, offending_symbol, msg: str) -> str:
+        """Traduce mensajes de ANTLR a descripciones mas legibles."""
+
         token_text = ""
         if offending_symbol is not None and offending_symbol.text is not None:
             token_text = offending_symbol.text
@@ -62,22 +72,16 @@ class SyntaxErrorListener(ErrorListener):
 
         if "missing ';'" in msg_lower:
             return 'se esperaba ";" al final de la sentencia.'
-
         if "missing '}'" in msg_lower:
             return 'se esperaba "}" para cerrar el bloque.'
-
         if "missing '{'" in msg_lower:
             return 'se esperaba "{" para iniciar el bloque.'
-
         if "missing ')'" in msg_lower:
             return 'se esperaba ")" para cerrar la expresion o parametros.'
-
         if "missing '('" in msg_lower:
             return 'se esperaba "(" para iniciar la expresion o parametros.'
-
         if "missing ']'" in msg_lower:
             return 'se esperaba "]" para cerrar el acceso de arreglo.'
-
         if "missing '['" in msg_lower:
             return 'se esperaba "[" para iniciar el acceso de arreglo.'
 
@@ -99,6 +103,8 @@ class SyntaxErrorListener(ErrorListener):
         return "estructura sintactica invalida."
 
     def syntaxError(self, recognizer, offendingSymbol, line, column, msg, e):
+        """Reporta solo el primer error sintactico encontrado."""
+
         if self._reported:
             return
 
@@ -109,6 +115,8 @@ class SyntaxErrorListener(ErrorListener):
 
 
 def parse_and_build_ast(input_path: Path):
+    """Ejecuta lexer, parser y builder para producir el AST de un archivo."""
+
     if not input_path.exists():
         print(f'Error: no existe el archivo "{input_path}".')
         sys.exit(1)
@@ -119,6 +127,7 @@ def parse_and_build_ast(input_path: Path):
     token_stream = CommonTokenStream(lexer)
     token_stream.fill()
 
+    # El parser solo corre si la fase lexica no encontro errores.
     if check_lexical_errors(token_stream, lexer):
         sys.exit(1)
 
@@ -140,6 +149,8 @@ def parse_and_build_ast(input_path: Path):
 
 
 def main():
+    """Punto de entrada de consola para depurar parser y AST."""
+
     if len(sys.argv) != 2:
         print("Uso: python fcc/src/parser_driver.py <archivo_fuente>")
         sys.exit(1)

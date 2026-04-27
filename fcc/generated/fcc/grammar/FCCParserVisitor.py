@@ -69,6 +69,11 @@ class FCCParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by FCCParser#vaultType.
+    def visitVaultType(self, ctx:FCCParser.VaultTypeContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by FCCParser#arraySuffix.
     def visitArraySuffix(self, ctx:FCCParser.ArraySuffixContext):
         return self.visitChildren(ctx)

@@ -116,6 +116,15 @@ class FCCParserListener(ParseTreeListener):
         pass
 
 
+    # Enter a parse tree produced by FCCParser#vaultType.
+    def enterVaultType(self, ctx:FCCParser.VaultTypeContext):
+        pass
+
+    # Exit a parse tree produced by FCCParser#vaultType.
+    def exitVaultType(self, ctx:FCCParser.VaultTypeContext):
+        pass
+
+
     # Enter a parse tree produced by FCCParser#arraySuffix.
     def enterArraySuffix(self, ctx:FCCParser.ArraySuffixContext):
         pass
