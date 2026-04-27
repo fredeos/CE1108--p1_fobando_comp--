@@ -958,8 +958,10 @@ class AssemblyGenerator:
 
         if self.current_secure_exit_label is not None:
             self._emit_label(self.current_secure_exit_label)
-
-        self._emit_function_cleanup(node, total_frame)
+            self._emit_function_cleanup(node, total_frame)
+        elif not self._block_guarantees_return(node.body):
+            # Solo dejamos una limpieza implicita si el cuerpo puede caer al final.
+            self._emit_function_cleanup(node, total_frame)
 
         self.current_param_shadow_offsets = {}
         function_symbol.extra["call_spill_size"] = self.current_call_spill_max
@@ -985,6 +987,29 @@ class AssemblyGenerator:
 
         if create_scope:
             self._pop_scope(previous_scope)
+
+    def _block_guarantees_return(self, node: BlockNode) -> bool:
+        """Determina si un bloque siempre termina retornando."""
+
+        for statement in node.statements:
+            if self._statement_guarantees_return(statement):
+                return True
+        return False
+
+    def _statement_guarantees_return(self, node) -> bool:
+        """Evalua si una sentencia garantiza la salida inmediata de la funcion."""
+
+        if isinstance(node, ReturnNode):
+            return True
+        if isinstance(node, BlockNode):
+            return self._block_guarantees_return(node)
+        if isinstance(node, IfNode):
+            if node.then_block is None or not self._block_guarantees_return(node.then_block):
+                return False
+            if node.else_block is None or not self._block_guarantees_return(node.else_block):
+                return False
+            return all(self._block_guarantees_return(branch.block) for branch in node.elif_branches)
+        return False
 
     def _emit_statement(self, node):
         """Despacha la generacion segun el tipo de sentencia."""

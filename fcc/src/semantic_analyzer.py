@@ -188,7 +188,19 @@ class SemanticAnalyzer:
             return True
 
         if target.is_array or source.is_array:
-            return False
+            if not (target.is_array and source.is_array):
+                return False
+            if target.name != source.name or target.is_pointer != source.is_pointer:
+                return False
+            if target.vault_inner != source.vault_inner:
+                return False
+            if len(target.array_dims) != len(source.array_dims):
+                return False
+
+            for target_dim, source_dim in zip(target.array_dims, source.array_dims):
+                if target_dim > 0 and target_dim != source_dim:
+                    return False
+            return True
 
         if target.is_pointer or source.is_pointer:
             return (
