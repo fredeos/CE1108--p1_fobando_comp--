@@ -232,7 +232,9 @@ class F32IS_Encoder:
         "orr": 0b1000, "orri": 0b1000,
         "xor": 0b1001, "xori": 0b1001,
         "seq": 0b1010, "seqi": 0b1010,
-        "nop": 0b0010, # Defaults to ADD with zero for NOP
+        "nop": 0b0010,
+        "mov": 0b0010, 
+        "ret": 0b0010,
     }
 
     # Secondary Arithmetic Specifiers (3 bits)
@@ -493,38 +495,26 @@ class F32IS_Encoder:
 
     @staticmethod
     def encode_f(inst: Instruction) -> str:
-        """
-        Encodes Type-F instructions (Function Call/Return).
-        
-        Hardware Map (32 bits):
-        [imm 20:4 (17 bits)] [rd: 14-10] [imm 3:0 (4 bits)] [opcode: 5-1] [P: 0]
-        
-        Field Description:
-        - imm 20:4: Upper bits of the 21-bit PC-relative function offset.
-        - rd: Link/Return register (5-bit GPR). Defaults to 'ra' (1).
-        - imm 3:0: Lower bits of the function offset.
-        - opcode: Fetched from OPCODES (e.g., 'call' -> 0b01001 or 0b01010).
-        - P: Security bit (LSB).
-        """
-        # Security bit (LSB)
+        # Bit de seguridad (P) en el bit 0
         p = "1" if inst.is_secure else "0"
         
-        opcode_val = F32IS_Encoder.OPCODES.get(inst.op, 0b01010)
+        # Según la tabla: jal/call = 01001 (decimal 9)
+        opcode_val = F32IS_Encoder.OPCODES.get(inst.op, 9) 
         opcode = format(opcode_val, '05b')
         
-        # Link Register (5-bit GPR)
-        # Standard convention: ra (r1) for calls.
-        rd = format(inst.rd or 1, '05b') 
+        # Registro de destino (rd): ra=1 para call, zero=0 para jmp
+        rd_val = inst.rd if inst.rd is not None else 1
+        rd = format(rd_val, '05b')
         
-        # 21-bit Immediate Segmentation (Two's Complement):
-        # The mask 0x1FFFFF correctly captures the sign for backward calls.
+        # Inmediato de 21 bits (imm21)
+        # El valor representa la distancia de salto (imm = destino - actual)
         imm_val = (inst.imm or 0) & 0x1FFFFF
         
-        # Split according to J/F-type physical layout
-        imm_3_0 = format(imm_val & 0xF, '04b')
-        imm_20_4 = format((imm_val >> 4) & 0x1FFFF, '017b')
+        # Segmentación según el mapa de bits J/F
+        imm_3_0 = format(imm_val & 0xF, '04b')           # Bits 9-6
+        imm_20_4 = format((imm_val >> 4) & 0x1FFFF, '017b') # Bits 31-15
         
-        # Concatenation from MSB (left) to LSB (right)
+        # Retorna la cadena de 32 bits concatenada
         return imm_20_4 + rd + imm_3_0 + opcode + p
     
     @staticmethod
@@ -786,173 +776,9 @@ class F32IS_Writer:
             print(f" Error: {e}")
 
 
-"""
-# --- Pruebas de instrucciones tipo R (Corregidas con nombres de registros reales F32IS) ---
-print(f"\n{'-'*20} TIPO R {'-'*20}")
-
-# 1. mul r1, p0, r1 (r1=15, p0=5)
-# Objetivo: R[15] = R[5] * R[15]
-# Nota: rm debe ser "r1" (15) para coincidir con el comentario, no "r15" (29)
-inst1 = Instruction(op="mul", rd="r1", rn="p0", rm="r1") 
-inst1._resolve_regs() 
-bin1 = F32IS_Encoder.encode_r(inst1)
-print(f"mul r1, p0, r1: {bin1}") 
-# Desglose: P(0) | Op(00000) | F4(0100) | rd(01111) | rn(00101) | rm(01111) | F7(0000000)
-
-# 2. add p0, r1, p1 (p0=5, r1=15, p1=6)
-inst2 = Instruction(op="add", rd="p0", rn="r1", rm="p1")
-inst2._resolve_regs()
-bin2 = F32IS_Encoder.encode_r(inst2)
-print(f"add p0, r1, p1: {bin2}")
-# Desglose: rd=00101, rn=01111, rm=00110
-
-# 3. sub r0, r1, r2 (r0=14, r1=15, r2=16)
-# r0 es 14 según tu tabla
-inst3 = Instruction(op="sub", rd="r0", rn="r1", rm="r2")
-inst3._resolve_regs()
-bin3 = F32IS_Encoder.encode_r(inst3)
-print(f"sub r0, r1, r2: {bin3}")
-# Desglose: rd=01110, rn=01111, rm=10000
-
-# 4. xor r4, r4, r4 (r4=18)
-inst4 = Instruction(op="xor", rd="r4", rn="r4", rm="r4")
-inst4._resolve_regs()
-bin4 = F32IS_Encoder.encode_r(inst4)
-print(f"xor r4, r4, r4: {bin4}")
-# Desglose: rd=rn=rm=10010
-
-# 5. mov r1, ra (r1=15, ra=1)
-# mov suele usar rm=zero (0) internamente
-inst_mov = Instruction(op="mov", rd="r1", rn="ra")
-inst_mov._resolve_regs()
-bin_mov = F32IS_Encoder.encode_r(inst_mov)
-print(f"mov r1, ra:    {bin_mov}") 
-
-# 6. seq r1, r2, r3 (r1=15, r2=16, r3=17)
-inst_seq = Instruction(op="seq", rd="r1", rn="r2", rm="r3")
-inst_seq._resolve_regs()
-bin_seq = F32IS_Encoder.encode_r(inst_seq)
-print(f"seq r1, r2, r3: {bin_seq}")
-
-# --- Pruebas de instrucciones Tipo I ---
-# --- Pruebas de instrucciones tipo I (Corregidas con nombres reales) ---
-print(f"\n{'-'*20} TIPO I {'-'*20}")
-
-# 1. addi sp, sp, 8
-# sp (2) -> sp (2) + 8
-inst_addi = Instruction(op="addi", rd="sp", rn="sp", imm=8)
-inst_addi._resolve_regs()
-print(f"ADDI (sp, sp, 8):   {F32IS_Encoder.encode_i(inst_addi)}")
-# Esperado: rd=00010, rn=00010, imm=000000001000
-
-# 2. li r1, 2 (Mapeado internamente a addi/movi con zero)
-# r1 (15) -> zero (0) + 2
-inst_li = Instruction(op="li", rd="r1", rn="zero", imm=2)
-inst_li._resolve_regs()
-print(f"LI   (r1, 2):       {F32IS_Encoder.encode_i(inst_li)}")
-# Esperado: rd=01111, rn=00000, imm=000000000010
-
-# 3. xori r5, r5, 0xFFF
-# r5 es 19 en tu tabla (r0=14 + 5)
-inst_xori = Instruction(op="xori", rd="r5", rn="r5", imm=0xFFF)
-inst_xori._resolve_regs()
-print(f"XORI (r5, r5, 0xFFF): {F32IS_Encoder.encode_i(inst_xori)}")
-# Esperado: rd=10011, rn=10011, imm=111111111111
-
-# 4. subi sp, sp, 8 (Inmediato negativo)
-inst_subi = Instruction(op="subi", rd="sp", rn="sp", imm=-8)
-inst_subi._resolve_regs()
-print(f"SUBI (sp, sp, -8):  {F32IS_Encoder.encode_i(inst_subi)}")
-# Nota: El imm12 se codifica en complemento a dos dentro de encode_i
-
-# --- Pruebas de instrucciones tipo M (Load/Store) ---
-print(f"\n{'-'*20} TIPO M {'-'*20}")
-
-# 1. stw ra, 0(sp)
-# Guardar dirección de retorno (ra=1) en la dirección del stack (sp=2) + 0
-inst_stw = Instruction(op="stw", rd="ra", rn="sp", imm=0)
-inst_stw._resolve_regs()
-print(f"stw ra, 0(sp):  {inst_stw.encode()}")
-# Desglose: P(0) Op(00101) S(0) B(0) H(0) W(1) rd(00001) rn(00010) imm(000000000000)
-
-# 2. ldb r1, -4(sp)
-# Cargar un byte en r1 (15) desde sp (2) - 4
-inst_ldb = Instruction(op="ldb", rd="r1", rn="sp", imm=-4)
-inst_ldb._resolve_regs()
-print(f"ldb r1, -4(sp): {inst_ldb.encode()}")
-# Desglose: S(1) indica resta, B(1) indica byte, imm(000000000100) es abs(4)
+####################################################
 
 
-# --- PRUEBAS TIPO B (Saltos Condicionales) ---
-print(f"\n{'-'*20} TIPO B {'-'*20}")
-
-# 1. beq r1, label (hacia adelante +16 bytes)
-# rd: r1 (15), rn: zero (0) por defecto para comparar r1 con zero
-inst_beq = Instruction(op="beq", rd="r1", rn="zero", imm=16)
-inst_beq._resolve_regs()
-print(f"beq r1, forward:  {inst_beq.encode()}")
-# Desglose: imm12 es 000000010000 (16 en binario)
-
-# 2. beq r1, label (hacia atrás -8 bytes)
-inst_beq_back = Instruction(op="beq", rd="r1", rn="zero", imm=-8)
-inst_beq_back._resolve_regs()
-print(f"beq r1, backward: {inst_beq_back.encode()}")
-# Desglose: imm12 en complemento a dos para -8 es 111111111000
-
-# --- Pruebas de instrucciones tipo J (Saltos Largos) ---
-print(f"\n{'-'*20} TIPO J {'-'*20}")
-
-# 1. jal ra, label (ra=1, saltando 1000 bytes)
-inst_jal = Instruction(op="jal", rd="ra", imm=1000)
-inst_jal._resolve_regs()
-print(f"JAL (ra, 1000):  {inst_jal.encode()}")
-# Desglose: P(0) | Op(01001) | rd(00001) | imm21(1000 en binario)
-
-# 2. j label (jal zero, offset)
-# rd: zero (0), imm: -20 (salto hacia atrás)
-inst_j = Instruction(op="j", rd="zero", imm=-20)
-inst_j._resolve_regs()
-print(f"J (offset -20):  {inst_j.encode()}")
-# Desglose: rd(00000) | imm21(complemento a dos para -20)
-
-
-# --- PRUEBAS SEGURIDAD (PR/PI) ---
-print(f"\n{'-'*20} TIPO PR / PI (Secure) {'-'*20}")
-
-# 1. padd ax, bx, cx (Tipo PR)
-# Registros de 3 bits: ax=0, bx=1, cx=2. 
-# Nota: _resolve_regs detecta que "padd" es una operación segura.
-inst_pr = Instruction(op="padd", rd="ax", rn="bx", rm="cx")
-inst_pr._resolve_regs()
-print(f"PADD (ax, bx, cx):   {inst_pr.encode()}")
-# Desglose: P(1) | Op(00010) | F4(0010) | sd(000) | sn(001) | sm(010) | sf(000)
-
-# 2. paddi ax, bx, 100 (Tipo PI)
-# Registros de 3 bits + Inmediato de 16 bits.
-inst_pi = Instruction(op="paddi", rd="ax", rn="bx", imm=100)
-inst_pi._resolve_regs()
-print(f"PADDI (ax, bx, 100): {inst_pi.encode()}")
-# Desglose: P(1) | Op(00011) | F4(0010) | sd(000) | sn(001) | imm16(100 en bin)
-
-# --- Pruebas de instrucciones tipo T (Transporte Seguro <-> General) ---
-print(f"\n{'-'*20} TIPO T {'-'*20}")
-
-# 1. send ax, r0
-# ax (Seguro): 0 | r0 (General): 14
-inst_send = Instruction(op="send", rd="ax", rn="r0")
-inst_send._resolve_regs()
-print(f"SEND (ax, r0):  {inst_send.encode()}")
-# Desglose: P(1) | Op(10000) | F4(0000) | sd(000) | rn(01110) | F14(0...0)
-
-# 2. recv bx, r1
-# bx (Seguro): 1 | r1 (General): 15
-inst_recv = Instruction(op="recv", rd="bx", rn="r1")
-inst_recv._resolve_regs()
-print(f"RECV (bx, r1):  {inst_recv.encode()}")
-# Desglose: P(1) | Op(10000) | F4(0001) | sd(001) | rn(01111) | F14(0...0)
-
-
-"""
 # --- PRUEBA DE INSTRUCCIÓN CON @ (Bit P Dinámico) ---
 print(f"\n{'-'*20} PRUEBA PREFIJO @ {'-'*20}")
 
@@ -974,68 +800,10 @@ print(f"Binario generado:     {bin_no_at}")
 print(f"Bit P (seguridad):    {bin_no_at[31]} <--- Debe ser 0")
 
 
-# ==============================================================================
-# 1. DEFINICIÓN DEL PROGRAMA ASM
-# ==============================================================================
-# Aquí se define la lógica del programa 'sum'.
-# El uso de 'sp', 'ra', 'p0', etc., es resuelto automáticamente por .encode()
-# ==============================================================================
-
-program_asm = [
-    # __init__: Configuración inicial y llamada a función
-    Instruction(op="movi", rd="r1", imm=4),           # PC 0
-    Instruction(op="movi", rd="p0", imm=7),           # PC 4
-    Instruction(op="add",  rd="p1", rn="p0", rm="r1"), # PC 8
-    Instruction(op="call", imm=8),                    # PC 12 -> Salto a PC 20 (sum)
-    Instruction(op="mul",  rd="r1", rn="p0", rm="r1"), # PC 16
-
-    # sum: Rutina que calcula (a*2)+b gestionando el Stack
-    Instruction(op="addi", rd="sp", rn="sp", imm=8),  # PC 20: Abrir marco de pila
-    Instruction(op="stw",  rd="ra", rn="sp", imm=0),  # PC 24: Guardar Retorno
-    Instruction(op="stw",  rd="r1", rn="sp", imm=4),  # PC 28: Guardar Temporal
-    
-    Instruction(op="li",   rd="r1", imm=2),           # PC 32: Cargar multiplicador
-    Instruction(op="mul",  rd="r1", rn="p0", rm="r1"), # PC 36: a * 2
-    Instruction(op="add",  rd="p0", rn="r1", rm="p1"), # PC 40: (a*2) + b
-    
-    Instruction(op="ldw",  rd="r1", rn="sp", imm=4),  # PC 44: Restaurar Temporal
-    Instruction(op="ldw",  rd="ra", rn="sp", imm=0),  # PC 48: Restaurar Retorno
-    Instruction(op="addi", rd="sp", rn="sp", imm=-8), # PC 52: Cerrar marco de pila
-    Instruction(op="ret")                             # PC 56: Volver a __init__
-]
-
-# ==============================================================================
-# 2. CODIFICACIÓN Y EJECUCIÓN DE LA ESCRITURA
-# ==============================================================================
-
-try:
-    # PASO A: Codificar cada objeto Instruction a una cadena binaria de 32 bits
-    # Esto dispara internamente el mapeo de registros GPR y Secure.
-    encoded_instructions = [inst.encode() for inst in program_asm]
-
-    # PASO B: Persistencia de archivos
-    # Se generan archivos compatibles con simuladores (hex) y hardware (bin).
-    F32IS_Writer.save_bin("sum_program.bin", encoded_instructions)
-    F32IS_Writer.save_hex("sum_program.hex", encoded_instructions)
-
-    # PASO C: Reporte de depuración en consola
-    print(f"\n{'#'*10} REPORTE FINAL DE ENSAMBLADO {'#'*10}")
-    print(f"{'ADDR':<6} | {'CONTENIDO HEX':<13} | {'OP'}")
-    print("-" * 35)
-    for i, bin_str in enumerate(encoded_instructions):
-        print(f"PC {i*4:02d} | Hex: {int(bin_str, 2):08X} | {program_asm[i].op}")
-
-except Exception as e:
-    print(f" Error crítico en el proceso: {e}")
-
-# ==============================================================================
-# NOTA: Para instrucciones seguras, use el prefijo '@' en 'op' (ej: "@mul").
-# El motor activará automáticamente el bit de seguridad y usará el banco Secure.
-# ==============================================================================
 
 # --- Definición del Programa con Sesión Segura ---
 program_asm = [
-    Instruction(op="addi", rd="r1", rn="r0", imm=4),    # PC 00
+    Instruction(op="addi", rd="r0", rn="r0", imm=0),    # PC 00
     Instruction(op="login", imm=0xBEEF0),               # PC 04
     Instruction(op="li", rd="r2", imm=100),             # PC 08
     Instruction(op="@mul", rd="r3", rn="r1", rm="r2"),  # PC 12
@@ -1099,7 +867,26 @@ program_asm = [
     rd="ax",   # Mapea a 0 (3-bit)
     rn="r4",   # Mapea a 4 (5-bit) -> Gracias a tu 'not in ["send", "recv"]'
     is_secure=True
-    )
+    ),
+    Instruction(
+    op="call",
+    rd="ra",        # Mapea a 1
+    imm=0x100,      # Inmediato de 21 bits
+    is_secure=False
+    ),
+    Instruction(
+    op="ret",
+    rd="pc",
+    rn="ra",
+    is_secure=False
+    ),
+    Instruction(
+    op="mov",
+    rd="r0",        # Destino: registro 15 (según el mapeo r0-r15)
+    rn="p0",        # Origen: registro 5
+    is_secure=False
+)
+
 ]
 
 # --- Proceso de Codificación y Escritura ---
