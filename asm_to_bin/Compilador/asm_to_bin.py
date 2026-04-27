@@ -436,7 +436,8 @@ class F32IS_Encoder:
         # Mapping for func4 based on the jump condition table provided
         condiciones = {
             "beq": 0b0000, "bne": 0b0001, "bgt": 0b0010,
-            "blt": 0b0011, "bge": 0b0100, "ble": 0b0101
+            "blt": 0b0011, "bge": 0b0100, "ble": 0b0101,
+            "beqz": 0b0000,
         }
         
         # Get the specific condition bits or default to 0000
@@ -445,15 +446,21 @@ class F32IS_Encoder:
         
         # Register Addresses (5-bit GPR bank)
         # rs1 (rn) and rd (rs2) are compared according to the func4 logic
-        rd = format(inst.rd or 0, '05b')
         rs1 = format(inst.rn or 0, '05b')
+        rs2 = format(inst.rm or 0, '05b')
         
         # 12-bit PC-relative offset in Two's Complement
         imm_val = inst.imm or 0
         imm12 = format(imm_val & 0xFFF, '012b')
+        # Divisiones solicitadas:
+        # imm11_5: Los 7 bits superiores (del bit 11 al 5)
+        imm11_5 = format((imm_val >> 5) & 0x7F, '07b')
+
+        # imm4_0: Los 5 bits inferiores (del bit 4 al 0)
+        imm4_0 = format(imm_val & 0x1F, '05b')
         
         # Concatenation from MSB (left) to LSB (right)
-        return imm12 + rs1 + rd + func4 + opcode + p
+        return imm11_5 + rs2 + rs1 + imm4_0 + func4 + opcode + p
     
 
     @staticmethod
