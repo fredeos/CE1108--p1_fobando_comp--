@@ -74,6 +74,7 @@ class Instruction:
             # Es Seguro si la instrucción es segura, EXCEPTO en 'recv'
             # (En 'recv rd, sm', el destino 'rd' es el Banco General)
             is_rd_secure = is_secure_instr and op_clean != "recv"
+
             self.rd = F32IS_Encoder.get_reg_addr(self.rd, is_rd_secure)
 
         # --- Resolve First Source Register (rn) ---
@@ -212,6 +213,8 @@ class F32IS_Encoder:
         "padd":  0b00010, "paddi":0b00011,
         "ldw":   0b00100, "ldh":  0b00100, "ldb":  0b00100,
         "stw":   0b00101, "sth":  0b00101, "stb":  0b00101,
+        "ldvw": 0b00110, "ldvh": 0b00110, "ldvb": 0b00110,
+        "stvw": 0b00111, "stvh": 0b00111, "stvb": 0b00111,
         "beq":   0b01000, "jal":  0b01001, "jmp": 0b01001,
         "send":  0b10000, "recv": 0b10000,
         "login": 0b10001, "quit": 0b10001,
@@ -542,7 +545,7 @@ class F32IS_Encoder:
         - P: Security bit (forced to 1 for this format).
         """
         # Security bit: Always 1 for Secure Bank instructions
-        p = "1" 
+        p = "1" if inst.is_secure else "0"
         
         # Opcode Retrieval: Fetches from OPCODES table.
         # Standard for PR-type is 0b00010.
@@ -589,7 +592,7 @@ class F32IS_Encoder:
         - P: Security bit (forced to 1).
         """
         # Security bit: Always 1 for Secure Bank/Instruction operations
-        p = "1"
+        p = "1" if inst.is_secure else "0"
         
         # Opcode Retrieval: Fetches from OPCODES table.
         # Standard for PI-type is 0b00011.
@@ -670,7 +673,7 @@ class F32IS_Encoder:
     def encode_s(inst: Instruction) -> str:
         """
         Encodes Type-S instructions (Login/Quit).
-        Hardware Map: imm21(31:11) | bit10(0) | func4(9:6) | opcode(5:1) | P(0)
+        Hardware Map: imm21(31:12) | 00 | func4(9:6) | opcode(5:1) | P(0)
         
         Lógica:
         - login: func4 = 0000. R[lr] <- (imm == KEY)
@@ -740,7 +743,7 @@ class F32IS_Encoder:
         
         # Concatenación final (MSB -> LSB)
         # [imm16][sn][sd][W][H][B][S][opcode][P]
-        return imm16 + sn + sd + w_bit + h_bit + b_bit + s_bit + opcode
+        return imm16 + sn + sd + w_bit + h_bit + b_bit + s_bit + opcode + p
     
 class F32IS_Writer:
     """

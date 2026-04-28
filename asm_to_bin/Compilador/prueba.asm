@@ -154,6 +154,13 @@ main_if_end_8:    # addr=448
     jmp 270
     call 270
     login 270
-    
+    pxorxor ax,bx,cx,dx
+    paddi cx,ax,1
+    ldvw ax, 16(bx)
+    ldvh ax, 16(bx)
+    ldvb ax, 16(bx)
+    stvw ax, 16(bx)
+    stvh ax, 16(bx)
+    stvb ax, 16(bx)
     ret
     

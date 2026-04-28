@@ -56,7 +56,9 @@ def parse_instr(instr: str) -> Optional[Instruction]:
     op_clean = op[1:] if is_secure else op  # op sin @ para comparar
 
     # 3. saber si la instruccion usa registros seguros
-    es_segura = op_clean.startswith('p') and op_clean not in ("pc",)
+    es_segura = (op_clean.startswith('p') and op_clean not in ("pc",)) or \
+                op_clean.startswith('ldv') or \
+                op_clean.startswith('stv')
 
     # 4. Revisar si es pseudo instruccion
 
