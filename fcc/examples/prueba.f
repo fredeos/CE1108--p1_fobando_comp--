@@ -1,9 +1,11 @@
 traigase "prueba1.f"
+#int global_result;
 
-func void main(){
+func int main(){
     int nums[4];
     int i = 0;
     int total = 0;
+    #float y = 0;
 
     nums[0] = 1;
     nums[1] = 2;
@@ -29,4 +31,5 @@ func void main(){
     } else {
         global_result = 0;
     }
+    ret global_result;
 }

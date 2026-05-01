@@ -282,6 +282,19 @@ class SemanticAnalyzer:
         param_types = [self.parse_type_string(param.param_type) for param in node.params]
         return_type = self.parse_type_string(node.return_type)
         self._validate_type(return_type, node.line, node.column, "return", node.name)
+        if return_type.is_void and node.name != "main":
+            self.error(
+                node.line,
+                node.column,
+                "void_function_not_allowed",
+                function_name=node.name,
+            )
+        if node.name == "main" and len(node.params) > 0:
+            self.error(
+                node.line,
+                node.column,
+                "main_with_parameters",
+            )
 
         signature = ", ".join(str(param_type) for param_type in param_types)
         function_symbol = Symbol(
@@ -442,7 +455,13 @@ class SemanticAnalyzer:
         body_returns = self._analyze_block(node.body, create_scope=True)
 
         expected = function_symbol.return_type
-        if expected is not None and not expected.is_void and not body_returns:
+        if node.name == "main" and expected is not None and not expected.is_void and not body_returns:
+            self.error(
+                node.line,
+                node.column,
+                "main_missing_return",
+            )
+        if expected is not None and not expected.is_void and not body_returns and node.name != "main":
             self.error(
                 node.line,
                 node.column,
@@ -479,7 +498,7 @@ class SemanticAnalyzer:
         return definitely_returns
 
     def _analyze_statement(self, node) -> bool:
-        """Despacha el analisis segun el tipo de sentencia."""
+        """define el analisis segun el tipo de sentencia."""
 
         if isinstance(node, VarDeclNode):
             self._analyze_var_decl(node)
@@ -707,17 +726,15 @@ class SemanticAnalyzer:
         expected = self.current_function.return_type
         if expected is None:
             return
-
         if expected.is_void:
-            if node.value is not None:
-                self.error(node.line, node.column, "void_function_return_value")
+            self.error(node.line, node.column, "void_function_return_forbidden")
             return
 
         if node.value is None:
             self.error(
                 node.line,
                 node.column,
-                "missing_return_value",
+                "missing_return_expression",
                 function_name=self.current_function.name,
                 expected_type=str(expected),
             )

@@ -14,6 +14,13 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from assembly_generator import AssemblyGenerator
+from asm_parser import parse_assembly_text
+from asm_to_bin import (
+    F32IS_Writer,
+    build_global_data_blob,
+    build_program_header,
+    encode_instruction_stream,
+)
 from import_resolver import ImportResolutionError, resolve_program_ast
 from semantic_analyzer import SemanticAnalyzer
 from semantic_driver import (
@@ -25,6 +32,10 @@ from semantic_driver import (
 
 def format_codegen_error(diagnostic) -> str:
     return f"Error [ensamblador] en linea {diagnostic.line}: {diagnostic.message}"
+
+
+def format_binary_error(error: Exception) -> str:
+    return f"Error [binario]: {error}"
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -54,8 +65,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-o",
         dest="salida",
+        nargs="?",
+        const="",
         metavar="<salida>",
-        help="Nombre reservado para el archivo binario de salida. Si se omite, se usa <archivo>.bin.",
+        help=(
+            "Especifica el nombre del archivo binario de salida. "
+            "Si se omite, o si se usa -o sin archivo, se toma el nombre del "
+            "fuente con extension .bin."
+        ),
     )
     parser.add_argument(
         "-v",
@@ -67,7 +84,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "-s",
         "--asm",
         action="store_true",
-        help="Genera el archivo de ensamblador (.asm). El binario .bin aun no se genera en esta version.",
+        help="Genera el archivo de ensamblador (.asm) ademas del binario final.",
     )
     parser.add_argument(
         "-t",
@@ -107,6 +124,12 @@ def derive_asm_output_path(binary_output_path: Path) -> Path:
     if binary_output_path.suffix:
         return binary_output_path.with_suffix(".asm")
     return Path(f"{binary_output_path}.asm")
+
+
+def derive_hex_output_path(binary_output_path: Path) -> Path:
+    if binary_output_path.suffix:
+        return binary_output_path.with_suffix(".hex")
+    return Path(f"{binary_output_path}.hex")
 
 
 def print_semantic_memory_summary(semantic_result) -> None:
@@ -224,7 +247,7 @@ def main():
         print()
 
     if args.verbose:
-        print("[3/3] Generando ensamblador...")
+        print("[3/4] Generando ensamblador...")
     generator = AssemblyGenerator()
     assembly_result = generator.generate(ast, semantic_result.symbol_table)
     if assembly_result.has_errors:
@@ -234,20 +257,39 @@ def main():
 
     binary_output_path = derive_binary_output_path(input_path, args.salida)
     asm_output_path = derive_asm_output_path(binary_output_path)
+    hex_output_path = derive_hex_output_path(binary_output_path)
 
     if args.asm:
         asm_output_path.write_text(assembly_result.text + "\n", encoding="utf-8")
 
+    if args.verbose:
+        print("[4/4] Generando codigo binario...")
+    try:
+        parsed_instructions = parse_assembly_text(assembly_result.text)
+        encoded_instructions = encode_instruction_stream(parsed_instructions)
+        data_blob, data_base = build_global_data_blob(ast, semantic_result.symbol_table)
+        header = build_program_header(encoded_instructions, data_blob, entry_point=0, data_base=data_base)
+        F32IS_Writer.save_program_bin(
+            str(binary_output_path),
+            header,
+            encoded_instructions,
+            data_blob,
+        )
+        F32IS_Writer.save_hex(str(hex_output_path), encoded_instructions)
+    except Exception as exc:
+        print(format_binary_error(exc))
+        raise SystemExit(1)
+
     print("Compilacion completada correctamente.")
-    print(f"Binario reservado: {binary_output_path.resolve()}")
+    print(f"Binario escrito en: {binary_output_path.resolve()}")
+    print(f"Hexadecimal escrito en: {hex_output_path.resolve()}")
     if args.asm:
         print(f"Ensamblador escrito en: {asm_output_path.resolve()}")
     else:
         print("Usa -s para generar tambien el archivo ensamblador (.asm).")
-    print("Nota: el archivo .bin final aun no se genera en esta version.")
 
     if args.verbose:
-        print("Nota: la fase 4 produce por ahora ensamblador textual intermedio.")
+        print("Nota: el binario contiene encabezado, codigo e imagen inicial de datos globales.")
 
 
 if __name__ == "__main__":

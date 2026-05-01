@@ -32,6 +32,7 @@ from symbol_table import DATA_BASE, MEMORY_SIZE, Scope, Symbol, SymbolTable, Typ
 WORD_SIZE = 4
 TEMP_REGS = [f"r{i}" for i in range(16)]
 SECURE_REGS = ["ax", "bx", "cx", "dx", "ex", "fx", "gx", "hx"]
+WRITABLE_SECURE_REGS = SECURE_REGS[1:]
 SAVE_REGS = ["ra"]
 BRANCH_IMMEDIATE_BITS = 12
 JUMP_IMMEDIATE_BITS = 21
@@ -541,8 +542,8 @@ class AssemblyGenerator:
             return operand
         if operand.startswith("r") and operand[1:].isdigit():
             index = int(operand[1:])
-            if 0 <= index < len(SECURE_REGS):
-                return SECURE_REGS[index]
+            if 0 <= index < len(WRITABLE_SECURE_REGS):
+                return WRITABLE_SECURE_REGS[index]
         return operand
 
     def _secure_memory_operand(self, operand: str) -> str:
@@ -583,7 +584,7 @@ class AssemblyGenerator:
             if mapped_dst in SECURE_REGS and mapped_src not in SECURE_REGS:
                 return ("send", [mapped_dst, src], True)
             if mapped_src in SECURE_REGS and mapped_dst not in SECURE_REGS:
-                return ("recv", [mapped_src, dst], True)
+                return ("recv", [dst, mapped_src], True)
             return (op, args, False)
 
         if op == "li" and len(args) == 2:
@@ -600,6 +601,20 @@ class AssemblyGenerator:
                 return ("pseqi", [mapped_dst, mapped_src, "0"], True)
             return (op, args, False)
 
+        if op == "seq" and len(args) == 3:
+            mapped_args = [self._secure_alias(arg) for arg in args]
+            if all(arg in SECURE_REGS for arg in mapped_args):
+                return ("pseq", mapped_args, True)
+            return (op, args, False)
+
+        if op == "seqi" and len(args) == 3:
+            dst, src, imm = args
+            mapped_dst = self._secure_alias(dst)
+            mapped_src = self._secure_alias(src)
+            if mapped_dst in SECURE_REGS and mapped_src in SECURE_REGS:
+                return ("pseqi", [mapped_dst, mapped_src, imm], True)
+            return (op, args, False)
+
         if op == "addi" and len(args) == 3:
             dst, src, imm = args
             mapped_dst = self._secure_alias(dst)
@@ -614,6 +629,30 @@ class AssemblyGenerator:
                 return ("psubi", [mapped_dst, mapped_src, str(abs(value))], True)
             return ("paddi", [mapped_dst, mapped_src, str(value)], True)
 
+        if op == "subi" and len(args) == 3:
+            dst, src, imm = args
+            mapped_dst = self._secure_alias(dst)
+            mapped_src = self._secure_alias(src)
+            if mapped_dst in SECURE_REGS and mapped_src in SECURE_REGS:
+                return ("psubi", [mapped_dst, mapped_src, imm], True)
+            return (op, args, False)
+
+        secure_imm_op_map = {
+            "muli": "pmuli",
+            "divi": "pdivi",
+            "modi": "pmodi",
+            "andi": "pandi",
+            "orri": "porri",
+            "xori": "pxori",
+        }
+        if op in secure_imm_op_map and len(args) == 3:
+            dst, src, imm = args
+            mapped_dst = self._secure_alias(dst)
+            mapped_src = self._secure_alias(src)
+            if mapped_dst in SECURE_REGS and mapped_src in SECURE_REGS:
+                return (secure_imm_op_map[op], [mapped_dst, mapped_src, imm], True)
+            return (op, args, False)
+
         secure_op_map = {
             "add": "padd",
             "sub": "psub",
@@ -623,12 +662,6 @@ class AssemblyGenerator:
             "and": "pand",
             "orr": "porr",
             "xor": "pxor",
-            "muli": "pmuli",
-            "divi": "pdivi",
-            "modi": "pmodi",
-            "andi": "pandi",
-            "orri": "porri",
-            "xori": "pxori",
         }
         if op in secure_op_map and len(args) >= 3:
             mapped_args = [self._secure_alias(arg) for arg in args]
@@ -1402,6 +1435,21 @@ class AssemblyGenerator:
             return self._emit_compare_value(node)
 
         left_reg = self._emit_expression(node.left)
+        immediate_value = self._immediate_operand(node.right)
+        if immediate_value is not None and node.operator in ARITHMETIC_IMM_OPS:
+            op_name = ARITHMETIC_IMM_OPS[node.operator]
+            self._emit_user(op_name, left_reg, left_reg, str(immediate_value))
+            return left_reg
+
+        if node.operator in {"+", "*", "&", "|", "^"}:
+            immediate_value = self._immediate_operand(node.left)
+            if immediate_value is not None and node.operator in ARITHMETIC_IMM_OPS:
+                right_reg = self._emit_expression(node.right)
+                op_name = ARITHMETIC_IMM_OPS[node.operator]
+                self._emit_user(op_name, right_reg, right_reg, str(immediate_value))
+                self._free_temp(left_reg)
+                return right_reg
+
         right_reg = self._emit_expression(node.right)
         result_reg = self._emit_binary_arithmetic(node, left_reg, right_reg)
         self._free_temp(right_reg)
@@ -1442,14 +1490,47 @@ class AssemblyGenerator:
             self._free_temp(second_reg)
             return first_reg
 
+        if node.operator == "+" and node.left.operator == "<<":
+            first_reg = self._emit_expression(node.left.left)
+            second_reg = self._emit_expression(node.left.right)
+            third_reg = self._emit_expression(node.right)
+            self._emit("pslladd", first_reg, first_reg, second_reg, third_reg, secure=True)
+            self._free_temp(third_reg)
+            self._free_temp(second_reg)
+            return first_reg
+
+        if node.operator == "+" and node.left.operator == ">>":
+            first_reg = self._emit_expression(node.left.left)
+            second_reg = self._emit_expression(node.left.right)
+            third_reg = self._emit_expression(node.right)
+            self._emit("psrladd", first_reg, first_reg, second_reg, third_reg, secure=True)
+            self._free_temp(third_reg)
+            self._free_temp(second_reg)
+            return first_reg
+
         return None
 
     def _emit_compare_value(self, node: BinaryOpNode) -> str:
         """Materializa una comparacion booleana en 0 o 1."""
 
         left_reg = self._emit_expression(node.left)
-        right_reg = self._emit_expression(node.right)
         result_reg = self._alloc_temp(node)
+        if node.operator in {"==", "!="}:
+            immediate_value = self._immediate_operand(node.right)
+            if immediate_value is not None:
+                self._emit_user("seqi", result_reg, left_reg, str(immediate_value))
+            else:
+                right_reg = self._emit_expression(node.right)
+                self._emit_user("seq", result_reg, left_reg, right_reg)
+                self._free_temp(right_reg)
+
+            if node.operator == "!=":
+                self._emit_user("seqz", result_reg, result_reg)
+
+            self._free_temp(left_reg)
+            return result_reg
+
+        right_reg = self._emit_expression(node.right)
         true_label = self._new_label("cmp_true")
         end_label = self._new_label("cmp_end")
 
@@ -1554,6 +1635,15 @@ class AssemblyGenerator:
         if node.literal_type == "int":
             return int(str(node.value), 10)
         return 0
+
+    def _immediate_operand(self, node) -> Optional[int]:
+        """Extrae un inmediato entero simple util para variantes tipo I."""
+
+        if not isinstance(node, LiteralNode):
+            return None
+        if node.literal_type not in {"int", "hex", "char", "bool"}:
+            return None
+        return self._literal_value(node)
 
     def _validate_secure_literal(self, node: FunctionDeclNode) -> bool:
         """Valida que la contrasena de @secure cumpla el formato esperado."""
@@ -1808,7 +1898,9 @@ class AssemblyGenerator:
                         rendered_args.append("0")
                         continue
                     target_index = label_to_index[arg.name]
-                    relative_offset = target_index - current_index
+                    # Los saltos relativos se calculan desde la instruccion
+                    # siguiente (PC + 4), no desde la instruccion actual.
+                    relative_offset = target_index - (current_index + 1)
                     self._validate_relative_immediate(item, relative_offset, current_index)
                     rendered_args.append(str(relative_offset))
                     resolved_targets.append(f"{arg.name} @ {target_index * WORD_SIZE}")

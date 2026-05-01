@@ -38,12 +38,22 @@ def format_semantic_error(diagnostic) -> str:
         )
     if code == "return_outside_function":
         return f'Error [semantico] en linea {diagnostic.line}: la sentencia "ret" no puede usarse fuera de una funcion.'
-    if code == "void_function_return_value":
-        return f'Error [semantico] en linea {diagnostic.line}: una funcion "void" no debe retornar un valor.'
-    if code == "missing_return_value":
+    if code == "void_function_return_forbidden":
+        return f'Error [semantico] en linea {diagnostic.line}: una funcion "void" no puede usar la sentencia "ret".'
+    if code == "missing_return_expression":
         return (
             f'Error [semantico] en linea {diagnostic.line}: '
-            f'la funcion "{d["function_name"]}" debe retornar un valor de tipo "{d["expected_type"]}".'
+            f'la funcion "{d["function_name"]}" debe usar "ret <expresion>;" con un valor de tipo "{d["expected_type"]}".'
+        )
+    if code == "void_function_not_allowed":
+        return (
+            f'Error [semantico] en linea {diagnostic.line}: '
+            f'la funcion "{d["function_name"]}" no puede declararse como "void"; debe tener un tipo de retorno concreto.'
+        )
+    if code == "main_with_parameters":
+        return (
+            f'Error [semantico] en linea {diagnostic.line}: '
+            'la funcion "main" no puede recibir parametros.'
         )
     if code == "return_type_mismatch":
         return (
@@ -55,6 +65,11 @@ def format_semantic_error(diagnostic) -> str:
             f'Error [semantico] en linea {diagnostic.line}: '
             f'la funcion "{d["function_name"]}" debe garantizar un retorno de tipo "{d["expected_type"]}" '
             f'en todos los caminos de ejecucion.'
+        )
+    if code == "main_missing_return":
+        return (
+            f'Error [semantico] en linea {diagnostic.line}: '
+            'la funcion "main" debe incluir una sentencia "ret" en todos los caminos de ejecucion.'
         )
     if code == "condition_type_mismatch":
         return (
