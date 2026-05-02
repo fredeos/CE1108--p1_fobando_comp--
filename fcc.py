@@ -48,6 +48,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
             Ejemplos:
               fcc main.f
               fcc main.f -o programa.bin
+              fcc main.f -c
+              fcc main.f -c -o modulo.obj
               fcc main.f -s
               fcc main.f -v -m
               fcc main.f -t
@@ -71,8 +73,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "Especifica el nombre del archivo binario de salida. "
             "Si se omite, o si se usa -o sin archivo, se toma el nombre del "
-            "fuente con extension .bin."
+            "fuente con extension .bin, o .obj si se usa -c."
         ),
+    )
+    parser.add_argument(
+        "-c",
+        "--compile-only",
+        action="store_true",
+        help="Solo compila y genera un archivo objeto textual (.obj), sin realizar el enlazado/binarizacion final.",
     )
     parser.add_argument(
         "-v",
@@ -114,10 +122,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def derive_binary_output_path(input_path: Path, explicit_output: str | None) -> Path:
+def derive_binary_output_path(input_path: Path, explicit_output: str | None, compile_only: bool = False) -> Path:
     if explicit_output:
         return Path(explicit_output)
-    return input_path.with_suffix(".bin")
+    return input_path.with_suffix(".obj" if compile_only else ".bin")
 
 
 def derive_asm_output_path(binary_output_path: Path) -> Path:
@@ -255,9 +263,25 @@ def main():
             print(format_codegen_error(diagnostic))
         raise SystemExit(1)
 
-    binary_output_path = derive_binary_output_path(input_path, args.salida)
+    binary_output_path = derive_binary_output_path(input_path, args.salida, compile_only=args.compile_only)
     asm_output_path = derive_asm_output_path(binary_output_path)
     hex_output_path = derive_hex_output_path(binary_output_path)
+
+    if args.compile_only:
+        binary_output_path.write_text(assembly_result.text + "\n", encoding="utf-8")
+        if args.asm:
+            asm_output_path.write_text(assembly_result.text + "\n", encoding="utf-8")
+
+        print("Compilacion completada correctamente.")
+        print(f"Objeto escrito en: {binary_output_path.resolve()}")
+        if args.asm:
+            print(f"Ensamblador escrito en: {asm_output_path.resolve()}")
+        else:
+            print("Usa -s para generar tambien el archivo ensamblador (.asm).")
+
+        if args.verbose:
+            print("Nota: el objeto textual contiene el ensamblador consolidado, sin binarizacion ni encabezado final.")
+        raise SystemExit(0)
 
     if args.asm:
         asm_output_path.write_text(assembly_result.text + "\n", encoding="utf-8")

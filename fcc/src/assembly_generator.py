@@ -312,7 +312,8 @@ class AssemblyGenerator:
                 "memory_offset_out_of_range",
                 f"el desplazamiento de memoria {offset} excede el rango soportado de +/-{MEMORY_OFFSET_MAX}.",
             )
-        return f"{offset}({base})"
+        op_sign = "+" if offset >= 0 else "-"
+        return f"{op_sign}{abs(offset)}({base})"
 
     def _align(self, value: int, alignment: int = WORD_SIZE) -> int:
         """Alinea un valor al multiplo requerido."""
@@ -549,7 +550,7 @@ class AssemblyGenerator:
     def _secure_memory_operand(self, operand: str) -> str:
         """Ajusta la base de un operando memoria al banco seguro si aplica."""
 
-        match = re.match(r"^(-?\d+)\(([^)]+)\)$", operand)
+        match = re.match(r"^([+-]?\d+)\(([^)]+)\)$", operand)
         if not match:
             return operand
         offset, base = match.groups()

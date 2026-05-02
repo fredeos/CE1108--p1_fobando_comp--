@@ -42,14 +42,29 @@ def parse_label(line: str) -> Optional[str]:
 
 
 def _parse_memory_operand(token: str, secure: bool) -> tuple[str, int, bool]:
-    """Extrae base, magnitud e indicador de resta de un operando off(reg)."""
+    """Extrae base, magnitud y operacion efectiva de un operando memoria.
 
-    match = re.fullmatch(r"(-?\d+)\((\w+)\)", token.strip())
+    El ISA separa la operacion (+/-) de la magnitud del inmediato. Para ser
+    tolerantes con el texto ensamblador, se aceptan formas como:
+
+    - ``4(sp)``
+    - ``+4(sp)``
+    - ``-4(sp)``
+    - ``+-3(sp)``
+    - ``--3(sp)``
+
+    Las dos ultimas se normalizan a la operacion efectiva equivalente.
+    """
+
+    match = re.fullmatch(r"([+-])?\s*([+-]?(?:0x[0-9a-fA-F]+|\d+))\((\w+)\)", token.strip())
     if not match:
         raise ValueError(f"Operando memoria invalido: '{token}'")
-    offset = parse_immediate(match.group(1))
-    base = parse_register(match.group(2), secure=secure)
-    return base, abs(offset), offset < 0
+    operation_sign = match.group(1) or "+"
+    signed_magnitude = parse_immediate(match.group(2))
+    base = parse_register(match.group(3), secure=secure)
+
+    effective_offset = signed_magnitude if operation_sign == "+" else -signed_magnitude
+    return base, abs(effective_offset), effective_offset < 0
 
 
 def _build_secure_metadata(op: str) -> tuple[Optional[str], Optional[str]]:

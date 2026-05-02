@@ -64,6 +64,47 @@ class Instruction:
     def _validate_isa_constraints(self):
         """Aplica restricciones estructurales del ISA antes de codificar."""
 
+        secure_native_ops = {
+            "login",
+            "quit",
+            "send",
+            "recv",
+            "ldvw",
+            "ldvh",
+            "ldvb",
+            "stvw",
+            "stvh",
+            "stvb",
+            "padd",
+            "psub",
+            "pmul",
+            "pdiv",
+            "pmod",
+            "pand",
+            "porr",
+            "pxor",
+            "pseq",
+            "pmov",
+            "paddadd",
+            "pxorxor",
+            "pslladd",
+            "psrladd",
+            "paddi",
+            "psubi",
+            "pmuli",
+            "pdivi",
+            "pmodi",
+            "pandi",
+            "porri",
+            "pxori",
+            "pseqi",
+            "pmovi",
+            "pla",
+            "pli",
+        }
+        if self.is_secure and self.op in secure_native_ops:
+            raise ValueError(f'la instruccion "{self.op}" no debe usar prefijo "@" porque ya pertenece al hardware seguro')
+
         secure_dest_ops = {
             "send",
             "ldvw",
@@ -599,6 +640,15 @@ class F32IS_Writer:
         with open(filename, "w", encoding="utf-8") as handle:
             for inst in instructions:
                 handle.write(f"{int(inst, 2):08X}\n")
+
+    @staticmethod
+    def save_object_bin(filename: str, instructions: Iterable[str], data_blob: bytes):
+        """Guarda un objeto parcial con codigo y datos, sin encabezado final."""
+
+        with open(filename, "wb") as handle:
+            for inst in instructions:
+                handle.write(F32IS_Writer.to_bytes(inst))
+            handle.write(data_blob)
 
     @staticmethod
     def save_program_bin(filename: str, header: BinaryHeader, instructions: Iterable[str], data_blob: bytes):
