@@ -123,6 +123,11 @@ def format_semantic_error(diagnostic) -> str:
             f'Error [semantico] en linea {diagnostic.line}: '
             f'no se puede asignar sobre la funcion "{d["name"]}".'
         )
+    if code == "assignment_to_readonly_register":
+        return (
+            f'Error [semantico] en linea {diagnostic.line}: '
+            f'no se puede asignar sobre el registro de solo lectura "{d["name"]}".'
+        )
     if code == "assignment_to_array":
         return (
             f'Error [semantico] en linea {diagnostic.line}: '

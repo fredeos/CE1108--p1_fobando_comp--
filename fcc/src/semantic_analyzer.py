@@ -40,6 +40,7 @@ from symbol_table import (
 
 
 VALID_BASE_TYPES = {"int", "float", "bool", "char", "void", "vault"}
+BUILTIN_READONLY_REGISTERS = {"zero", "delta", "max"}
 ARITHMETIC_PROMOTING_OPERATORS = {"+", "-", "*", "/", "~"}
 INTEGRAL_ONLY_OPERATORS = {"%", "<<", ">>"}
 BITWISE_OPERATORS = {"&", "|", "^"}
@@ -222,6 +223,18 @@ class SemanticAnalyzer:
         """Resuelve un simbolo o reporta que la referencia no existe."""
 
         symbol = self.symbol_table.resolve(name)
+        if symbol is None and name in BUILTIN_READONLY_REGISTERS:
+            return Symbol(
+                name=name,
+                kind="register",
+                type_info=TypeInfo("int"),
+                scope_name="builtin",
+                line=line,
+                column=column,
+                segment="register",
+                register=name,
+                extra={"readonly": True},
+            )
         if symbol is None:
             self.error(line, column, "undeclared_reference", name=name)
         return symbol
@@ -958,6 +971,9 @@ class SemanticAnalyzer:
                 return None
             if symbol.kind == "function":
                 self.error(node.line, node.column, "assignment_to_function", name=node.name)
+                return None
+            if symbol.extra.get("readonly"):
+                self.error(node.line, node.column, "assignment_to_readonly_register", name=node.name)
                 return None
             if symbol.type_info is not None and symbol.type_info.is_array:
                 self.error(

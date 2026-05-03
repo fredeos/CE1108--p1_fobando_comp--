@@ -82,6 +82,7 @@ BRANCH_FALSE_OPS = {
 }
 RELATIVE_BRANCH_OPS = {*BRANCH_TRUE_OPS.values(), *BRANCH_FALSE_OPS.values(), "beqz"}
 RELATIVE_JUMP_OPS = {"jmp", "call", "jal"}
+BUILTIN_READONLY_REGISTERS = {"zero", "delta", "max"}
 
 
 @dataclass
@@ -277,6 +278,18 @@ class AssemblyGenerator:
             if symbol is not None:
                 return symbol
             scope = scope.parent
+        if name in BUILTIN_READONLY_REGISTERS:
+            return Symbol(
+                name=name,
+                kind="register",
+                type_info=TypeInfo("int"),
+                scope_name="builtin",
+                line=0,
+                column=0,
+                segment="register",
+                register=name,
+                extra={"readonly": True},
+            )
         return None
 
     def _alloc_temp(self, node) -> str:
@@ -790,6 +803,17 @@ class AssemblyGenerator:
             self._free_temp(addr_reg)
             return
 
+        if symbol.segment == "register":
+            self._emit_user("mov", target_reg, symbol.register or symbol.name)
+            return
+
+        if symbol.segment == "vault":
+            addr_reg = self._alloc_temp(symbol)
+            self._emit_load_immediate_user(addr_reg, symbol.address or 0)
+            self._emit_user(self._vault_load_op(symbol.type_info.element_type()), target_reg, self._format_memory_operand(0, addr_reg, symbol))
+            self._free_temp(addr_reg)
+            return
+
         if symbol.segment == "stack":
             self._emit_user(
                 self._type_load_op(symbol.type_info),
@@ -828,6 +852,17 @@ class AssemblyGenerator:
             addr_reg = self._alloc_temp(symbol)
             self._emit_user("la", addr_reg, AddressRef(symbol.name))
             self._emit_user(self._type_store_op(symbol.type_info), value_reg, self._format_memory_operand(0, addr_reg, symbol))
+            self._free_temp(addr_reg)
+            return
+
+        if symbol.segment == "register":
+            self.error(symbol, "readonly_register_store", f'no se puede escribir en el registro de solo lectura "{symbol.name}".')
+            return
+
+        if symbol.segment == "vault":
+            addr_reg = self._alloc_temp(symbol)
+            self._emit_load_immediate_user(addr_reg, symbol.address or 0)
+            self._emit_user(self._vault_store_op(symbol.type_info.element_type()), value_reg, self._format_memory_operand(0, addr_reg, symbol))
             self._free_temp(addr_reg)
             return
 
@@ -1280,6 +1315,10 @@ class AssemblyGenerator:
 
             if symbol.segment == "global":
                 self._emit_user("la", result_reg, AddressRef(symbol.name))
+                return result_reg
+
+            if symbol.segment == "vault":
+                self._emit_load_immediate_user(result_reg, symbol.address or 0)
                 return result_reg
 
             if symbol.segment == "stack":

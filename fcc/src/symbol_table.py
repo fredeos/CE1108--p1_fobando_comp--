@@ -219,6 +219,7 @@ class SymbolTable:
 
         # Contadores de memoria y estado del frame actual.
         self.next_global_address = DATA_BASE
+        self.next_vault_address = 0
         self.next_code_address = CODE_BASE
         self.current_stack_offset = 0
         self.current_parameter_offset = 0
@@ -305,6 +306,14 @@ class SymbolTable:
         self.next_global_address += aligned
         return addr
 
+    def allocate_vault(self, size: int) -> int:
+        """Reserva una ventana de direcciones dentro de la boveda segura."""
+
+        aligned = self._align(size, WORD_SIZE)
+        addr = self.next_vault_address
+        self.next_vault_address += aligned
+        return addr
+
     def allocate_local(self, size: int) -> int:
         """Reserva espacio para una variable local dentro del frame actual."""
 
@@ -342,6 +351,10 @@ class SymbolTable:
             return
         symbol.size = symbol.type_info.total_size()
         symbol.alignment = WORD_SIZE
+        if symbol.type_info.name == "vault" and not symbol.type_info.is_pointer:
+            symbol.segment = "vault"
+            symbol.address = self.allocate_vault(symbol.size)
+            return
         symbol.segment = "global"
         symbol.address = self.allocate_global(symbol.size)
 
