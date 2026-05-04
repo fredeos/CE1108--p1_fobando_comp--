@@ -83,6 +83,7 @@ BRANCH_FALSE_OPS = {
 RELATIVE_BRANCH_OPS = {*BRANCH_TRUE_OPS.values(), *BRANCH_FALSE_OPS.values(), "beqz"}
 RELATIVE_JUMP_OPS = {"jmp", "call", "jal"}
 BUILTIN_READONLY_REGISTERS = {"zero", "delta", "max"}
+BUILTIN_DATA_MEMORY = "data_mem"
 
 
 @dataclass
@@ -289,6 +290,18 @@ class AssemblyGenerator:
                 segment="register",
                 register=name,
                 extra={"readonly": True},
+            )
+        if name == BUILTIN_DATA_MEMORY:
+            return Symbol(
+                name=name,
+                kind="memory",
+                type_info=TypeInfo("int", is_pointer=True),
+                scope_name="builtin",
+                line=0,
+                column=0,
+                segment="data_mem",
+                address=0,
+                extra={"readonly": True, "byte_indexed": True},
             )
         return None
 
@@ -888,6 +901,15 @@ class AssemblyGenerator:
 
         self.error(symbol, "unsupported_symbol_segment", f'no se puede almacenar el simbolo "{symbol.name}".')
 
+    def _is_data_mem_index_access(self, node) -> bool:
+        """Reconoce accesos directos data_mem[byte_offset]."""
+
+        return (
+            isinstance(node, IndexAccessNode)
+            and isinstance(node.target, IdentifierNode)
+            and node.target.name == BUILTIN_DATA_MEMORY
+        )
+
     # PROGRAMA
 
     def _emit_program(self, program: ProgramNode):
@@ -1359,6 +1381,14 @@ class AssemblyGenerator:
                 return result_reg
 
         if isinstance(node, IndexAccessNode):
+            if self._is_data_mem_index_access(node):
+                base_reg = self._alloc_temp(node)
+                index_reg = self._emit_expression(node.index)
+                self._emit_load_immediate_user(base_reg, 0)
+                self._emit_user("add", base_reg, base_reg, index_reg)
+                self._free_temp(index_reg)
+                return base_reg
+
             target_type = self._infer_type(node.target)
             if target_type is None:
                 return self._alloc_temp(node)

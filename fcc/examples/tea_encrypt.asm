@@ -2,24 +2,33 @@
 ; ISA base: F32IS (isa.md)
 __init__:    # addr=0
     li sp, 8
-    call 102    # entrada principal | -> main @ 416
+    call 113    # entrada principal | -> main @ 460
 __halt__:    # addr=8
     jmp -1    # -> __halt__ @ 8
-tea_encrypt:    # addr=12
-    addi sp, sp, 20
+tea_encrypt_file:    # addr=12
+    addi sp, sp, 28
     stw ra, +0(sp)
-    mov p0, zero
     login 0xA9C1F
-    beqz lr, 92    # -> tea_encrypt_secure_exit_1 @ 400
+    beqz lr, 104    # -> tea_encrypt_file_secure_exit_1 @ 444
     pmovi r1, 0
-    pmovi dx, 0
-    pmuli dx, dx, 4
+    @ldw r0, +0(r1)
+    @stw r0, +24(sp)
+    pmovi bx, 0
+    @stw r0, +20(sp)
+tea_encrypt_file_for_cond_2:    # addr=48
+    @ldw r0, +20(sp)
+    pmovi r2, 4
+    @ldw r1, +0(r2)
+    @bge r0, r1, 95    # -> tea_encrypt_file_for_end_4 @ 444
+    @ldw r2, +24(sp)
+    paddi dx, dx, 0
+    pmovi cx, 0
     padd cx, cx, dx
     @ldw r0, +0(r1)
     @stw r0, +16(sp)
-    pmovi r1, 0
-    pmovi dx, 1
-    pmuli dx, dx, 4
+    @ldw r2, +24(sp)
+    paddi dx, dx, 4
+    pmovi cx, 0
     padd cx, cx, dx
     @ldw r0, +0(r1)
     @stw r0, +12(sp)
@@ -27,10 +36,10 @@ tea_encrypt:    # addr=12
     @stw r0, +8(sp)
     pmovi bx, 0
     @stw r0, +4(sp)
-tea_encrypt_for_cond_2:    # addr=96
+tea_encrypt_file_for_cond_5:    # addr=128
     @ldw r0, +4(sp)
     pmovi cx, 32
-    @bge r0, r1, 55    # -> tea_encrypt_for_end_4 @ 328
+    @bge r0, r1, 55    # -> tea_encrypt_file_for_end_7 @ 360
     send bx, delta
     @ldw r1, +8(sp)
     padd cx, cx, bx
@@ -81,40 +90,45 @@ tea_encrypt_for_cond_2:    # addr=96
     @ldw r1, +12(sp)
     padd cx, cx, bx
     @stw r1, +12(sp)
-tea_encrypt_for_update_3:    # addr=308
+tea_encrypt_file_for_update_6:    # addr=340
     pmovi cx, 1
     @ldw r0, +4(sp)
     padd bx, bx, cx
     @stw r0, +4(sp)
-    @jmp -58    # -> tea_encrypt_for_cond_2 @ 96
-tea_encrypt_for_end_4:    # addr=328
+    @jmp -58    # -> tea_encrypt_file_for_cond_5 @ 128
+tea_encrypt_file_for_end_7:    # addr=360
     @ldw r0, +16(sp)
-    pmovi r1, 0
-    pmovi dx, 0
-    pmuli dx, dx, 4
+    @ldw r2, +24(sp)
+    paddi dx, dx, 0
+    pmovi cx, 0
     padd cx, cx, dx
     @stw r0, +0(r1)
     @ldw r0, +12(sp)
-    pmovi r1, 0
-    pmovi dx, 1
-    pmuli dx, dx, 4
+    @ldw r2, +24(sp)
+    paddi dx, dx, 4
+    pmovi cx, 0
     padd cx, cx, dx
     @stw r0, +0(r1)
-    pmovi bx, 0
-    recv p0, bx
+    pmovi bx, 8
+    @ldw r1, +24(sp)
+    padd cx, cx, bx
+    @stw r1, +24(sp)
+tea_encrypt_file_for_update_3:    # addr=424
+    pmovi cx, 1
+    @ldw r0, +20(sp)
+    padd bx, bx, cx
+    @stw r0, +20(sp)
+    @jmp -99    # -> tea_encrypt_file_for_cond_2 @ 48
+tea_encrypt_file_for_end_4:    # addr=444
+tea_encrypt_file_secure_exit_1:    # addr=444
     quit
     ldw ra, +0(sp)
-    addi sp, sp, -20
+    addi sp, sp, -28
     ret
-tea_encrypt_secure_exit_1:    # addr=400
-    quit
-    ldw ra, +0(sp)
-    addi sp, sp, -20
-    ret
-main:    # addr=416
+main:    # addr=460
     addi sp, sp, 4
     stw ra, +0(sp)
-    call -104    # -> tea_encrypt @ 12
+    call -115    # -> tea_encrypt_file @ 12
     ldw ra, +0(sp)
     addi sp, sp, -4
     ret

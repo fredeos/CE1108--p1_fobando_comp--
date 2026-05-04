@@ -41,6 +41,7 @@ from symbol_table import (
 
 VALID_BASE_TYPES = {"int", "float", "bool", "char", "void", "vault"}
 BUILTIN_READONLY_REGISTERS = {"zero", "delta", "max"}
+BUILTIN_DATA_MEMORY = "data_mem"
 ARITHMETIC_PROMOTING_OPERATORS = {"+", "-", "*", "/", "~"}
 INTEGRAL_ONLY_OPERATORS = {"%", "<<", ">>"}
 BITWISE_OPERATORS = {"&", "|", "^"}
@@ -235,6 +236,18 @@ class SemanticAnalyzer:
                 register=name,
                 extra={"readonly": True},
             )
+        if symbol is None and name == BUILTIN_DATA_MEMORY:
+            return Symbol(
+                name=name,
+                kind="memory",
+                type_info=TypeInfo("int", is_pointer=True),
+                scope_name="builtin",
+                line=line,
+                column=column,
+                segment="data_mem",
+                address=0,
+                extra={"readonly": True, "byte_indexed": True},
+            )
         if symbol is None:
             self.error(line, column, "undeclared_reference", name=name)
         return symbol
@@ -295,13 +308,6 @@ class SemanticAnalyzer:
         param_types = [self.parse_type_string(param.param_type) for param in node.params]
         return_type = self.parse_type_string(node.return_type)
         self._validate_type(return_type, node.line, node.column, "return", node.name)
-        if return_type.is_void and node.name != "main":
-            self.error(
-                node.line,
-                node.column,
-                "void_function_not_allowed",
-                function_name=node.name,
-            )
         if node.name == "main" and len(node.params) > 0:
             self.error(
                 node.line,
@@ -740,7 +746,8 @@ class SemanticAnalyzer:
         if expected is None:
             return
         if expected.is_void:
-            self.error(node.line, node.column, "void_function_return_forbidden")
+            if node.value is not None:
+                self.error(node.line, node.column, "void_function_return_forbidden")
             return
 
         if node.value is None:

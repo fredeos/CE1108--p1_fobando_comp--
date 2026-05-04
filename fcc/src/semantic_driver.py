@@ -39,7 +39,7 @@ def format_semantic_error(diagnostic) -> str:
     if code == "return_outside_function":
         return f'Error [semantico] en linea {diagnostic.line}: la sentencia "ret" no puede usarse fuera de una funcion.'
     if code == "void_function_return_forbidden":
-        return f'Error [semantico] en linea {diagnostic.line}: una funcion "void" no puede usar la sentencia "ret".'
+        return f'Error [semantico] en linea {diagnostic.line}: una funcion "void" no puede retornar un valor.'
     if code == "missing_return_expression":
         return (
             f'Error [semantico] en linea {diagnostic.line}: '
