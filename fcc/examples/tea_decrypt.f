@@ -23,7 +23,7 @@ func int tea_decrypt(int[] v){
     ret 0;        # Retorno convencional para indicar fin correcto.
 }
 
-# main no pertenece al algoritmo TEA de la figura.
+# main no pertenece al algoritmo TEA.
 # Solo invoca el descifrado sobre los datos que ya estan en memoria.
 func void main(){
     tea_decrypt(tea_block);    # Descifra in-place el bloque cargado en RAM.

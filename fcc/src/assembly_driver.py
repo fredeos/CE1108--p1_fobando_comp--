@@ -8,6 +8,7 @@ from pprint import pprint
 from semantic_analyzer import SemanticAnalyzer
 from semantic_driver import format_semantic_error
 from assembly_generator import AssemblyGenerator
+from ast_json import derive_ast_json_output_path, write_ast_json
 from import_resolver import ImportResolutionError, resolve_program_ast
 
 
@@ -71,6 +72,9 @@ def main():
     if args.ast:
         print("AST consolidado:\n")
         pprint(ast)
+        ast_json_output_path = derive_ast_json_output_path(input_path)
+        write_ast_json(ast, ast_json_output_path)
+        print(f"AST JSON escrito en: {ast_json_output_path.resolve()}")
         print()
 
     # La generacion solo avanza si el programa ya paso semantica.

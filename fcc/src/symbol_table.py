@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 WORD_SIZE = 4
 MEMORY_SIZE = 0x10000
-DATA_BASE = 0x1000
+DATA_BASE = 0x0000
 CODE_BASE = 0x0000
 PARAM_REGISTER_LIMIT = 9
 

@@ -14,6 +14,7 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from assembly_generator import AssemblyGenerator
+from ast_json import derive_ast_json_output_path, write_ast_json
 from asm_parser import parse_assembly_text
 from asm_to_bin import (
     F32IS_Writer,
@@ -239,6 +240,9 @@ def main():
     if args.ast:
         print("AST consolidado:\n")
         pprint(ast)
+        ast_json_output_path = derive_ast_json_output_path(input_path)
+        write_ast_json(ast, ast_json_output_path)
+        print(f"AST JSON escrito en: {ast_json_output_path.resolve()}")
         print()
 
     if args.verbose:

@@ -10,7 +10,7 @@ func int buscar(int objetivo){
     datos[1] = 1;
     datos[2] = 7;
     datos[3] = 9;
-    datos[4] = 3;
+    datos[4] = 6;
 
     while (i < 5) {
         if (datos[i] == objetivo) {
@@ -25,9 +25,10 @@ func int buscar(int objetivo){
         }
     }
 
+    found_index = posicion;
     ret posicion;
 }
 
 func void main(){
-    found_index = buscar(7);
+    buscar(7);
 }

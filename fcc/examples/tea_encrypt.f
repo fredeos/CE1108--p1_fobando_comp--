@@ -6,10 +6,10 @@
 int tea_block[2];      # Bloque de 64 bits cargado en memoria: dos palabras.
 vault[4] key;          # Ventana de 4 palabras hacia la boveda segura.
 
-@secure(0xBEEF0)
-func int tea_encrypt(int[] v){
-    int v0 = v[0];       # Copia local de la palabra baja del bloque.
-    int v1 = v[1];       # Copia local de la palabra alta del bloque.
+@secure(0xA9C1F)
+func int tea_encrypt(){
+    int v0 = tea_block[0];       # Copia local de la palabra baja del bloque.
+    int v1 = tea_block[1];       # Copia local de la palabra alta del bloque.
     int sum = 0;         # Acumulador de rondas de TEA.
 
     for (int i = 0; i += 1; i < 32) {
@@ -18,13 +18,13 @@ func int tea_encrypt(int[] v){
         v1 += ((v0 << 4) + key[2]) ^ (v0 + sum) ^ ((v0 >> 5) + key[3]);    # Mezcla v0 actualizado con key[2] y key[3].
     }
 
-    v[0] = v0;    # Escribe la primera palabra cifrada.
-    v[1] = v1;    # Escribe la segunda palabra cifrada.
+    tea_block[0] = v0;    # Escribe la primera palabra cifrada.
+    tea_block[1] = v1;    # Escribe la segunda palabra cifrada.
     ret 0;        # Retorno convencional para indicar fin correcto.
 }
 
 # main no pertenece al algoritmo TEA de la figura.
 # Solo invoca el cifrado sobre los datos que ya estan en memoria.
 func void main(){
-    tea_encrypt(tea_block);    # Cifra in-place el bloque cargado en RAM.
+    tea_encrypt();    # Cifra in-place el bloque cargado en RAM.
 }

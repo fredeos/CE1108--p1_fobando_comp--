@@ -1,7 +1,7 @@
 ; Codigo ensamblador generado por FCC
 ; ISA base: F32IS (isa.md)
 __init__:    # addr=0
-    li sp, 468
+    li sp, 8
     call 104    # entrada principal | -> main @ 424
 __halt__:    # addr=8
     jmp -1    # -> __halt__ @ 8
@@ -116,10 +116,9 @@ tea_decrypt_secure_exit_1:    # addr=408
 main:    # addr=424
     addi sp, sp, 4
     stw ra, +0(sp)
-    la r0, 460
+    la r0, 0
     mov p0, r0
     call -108    # -> tea_decrypt @ 12
-    mov r0, p0
     ldw ra, +0(sp)
     addi sp, sp, -4
     ret

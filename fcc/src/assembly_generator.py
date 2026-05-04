@@ -1247,11 +1247,35 @@ class AssemblyGenerator:
         """Genera un retorno directo, incluyendo limpieza del frame."""
 
         if node.value is not None:
+            needs_load_delay = self._return_value_needs_load_delay(node.value)
             value_reg = self._emit_expression(node.value)
+            if needs_load_delay:
+                self._emit("nop", comment="espera load-use antes de mover retorno")
+                self._emit("nop", comment="espera load-use antes de mover retorno")
             self._emit_user("mov", "p0", value_reg)
             self._free_temp(value_reg)
         total_frame = self.current_saved_area + self.current_local_size + (len(self.current_param_shadow_offsets) * WORD_SIZE)
         self._emit_function_cleanup(self.current_function, total_frame)
+
+    def _return_value_needs_load_delay(self, node) -> bool:
+        """Indica si el retorno quedara como carga de memoria seguida de mov a p0."""
+
+        if isinstance(node, IndexAccessNode):
+            return True
+        if isinstance(node, IdentifierNode):
+            symbol = self._resolve_symbol(node.name)
+            if symbol is None or symbol.type_info is None or symbol.type_info.is_array:
+                return False
+            if symbol.segment in {"global", "stack", "vault"}:
+                return True
+            if symbol.segment == "param":
+                shadow_offset = self._parameter_shadow_offset(symbol)
+                return symbol.register is None or (
+                    shadow_offset is not None and symbol.name in self.current_homed_params
+                )
+        if isinstance(node, UnaryOpNode) and node.operator == "*":
+            return True
+        return False
 
     # LVALUES
 
@@ -1637,7 +1661,11 @@ class AssemblyGenerator:
             self._emit_user("mov", result_reg, "zero")
             return result_reg
 
+        if discard_result:
+            return None
+
         result_reg = self._alloc_temp(node)
+        self._emit("nop", comment="espera retorno de call antes de leer p0")
         self._emit_user("mov", result_reg, "p0")
         return result_reg
 
@@ -1752,7 +1780,10 @@ class AssemblyGenerator:
             )
             return (0, 0)
 
-        relocated_data_base = self._align(code_size, WORD_SIZE)
+        # La microarquitectura usa memorias separadas para instrucciones y datos.
+        # Por eso los simbolos globales viven desde DATA_BASE dentro de data_memory,
+        # no despues del segmento de instrucciones cargado en imem.
+        relocated_data_base = DATA_BASE
         global_data_size = max(0, self.symbol_table.next_global_address - DATA_BASE)
         data_end = relocated_data_base + global_data_size
         self.stack_base_address = self._align(data_end, WORD_SIZE)

@@ -7,9 +7,10 @@ func int factorial(int a){
         resultado = resultado * i;
         i += 1;
     }
+    global_result = resultado;
     ret resultado;
 }
 
 func void main(){
-    global_result = factorial(5);
+    factorial(8);
 }
