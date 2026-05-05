@@ -56,7 +56,7 @@ parameter
 // 3. TIPOS
 
 typeRule
-    : baseType (STAR)* arraySuffix*
+    : (vaultType | baseType) (STAR)* arraySuffix*
     ;
 
 baseType
@@ -65,7 +65,10 @@ baseType
     | BOOL
     | CHAR
     | VOID
-    | VAULT
+    ;
+
+vaultType
+    : VAULT LBRACK INT_LITERAL RBRACK
     ;
 
 arraySuffix
@@ -170,7 +173,6 @@ whileStmt
 forStmt
     : FOR LPAREN forInitializer SEMI forIncrement SEMI forCondition RPAREN block
     ;
-
 forInitializer
     : varDeclNoSemi
     | assignment

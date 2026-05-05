@@ -1,3 +1,5 @@
+"""Driver del analisis lexico y utilidades para listar tokens."""
+
 from pathlib import Path
 import importlib.util
 import sys
@@ -14,12 +16,14 @@ except ModuleNotFoundError as exc:
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GENERATED_LEXER_PATHS = (
-    PROJECT_ROOT / "generated" / "grammar" / "FCCLexer.py", #Esta es por si acaso, antes se metia aqui, pero depende de sus compus
+    PROJECT_ROOT / "generated" / "grammar" / "FCCLexer.py",
     PROJECT_ROOT / "generated" / "fcc" / "grammar" / "FCCLexer.py",
 )
 
 
 def load_generated_lexer():
+    """Carga dinamicamente el lexer generado por ANTLR."""
+
     for lexer_path in GENERATED_LEXER_PATHS:
         if not lexer_path.exists():
             continue
@@ -45,20 +49,16 @@ FCCLexer = load_generated_lexer()
 
 
 def get_token_name(lexer, token_type):
-    """
-    Retorna el nombre simbólico del token.
-    """
+    """Retorna el nombre simbolico de un token."""
+
     if token_type == -1:
         return "EOF"
     return lexer.symbolicNames[token_type]
 
 
 def check_lexical_errors(token_stream, lexer):
-    """
-    Recorre los tokens generados y revisa si alguno corresponde
-    a un error léxico definido en el lexer.
-    Retorna True si hubo error, False en caso contrario.
-    """
+    """Revisa si el stream contiene tokens marcados como errores lexicos."""
+
     for token in token_stream.tokens:
         if token.type == -1:
             continue
@@ -99,11 +99,10 @@ def check_lexical_errors(token_stream, lexer):
 
 
 def print_token_table(token_stream, lexer):
-    """
-    Imprime una tabla con todos los tokens válidos encontrados.
-    """
+    """Imprime una tabla de los tokens validos encontrados."""
+
     print("=" * 90)
-    print(f"{'Línea':<8}{'Columna':<10}{'Token':<30}{'Lexema'}")
+    print(f"{'Linea':<8}{'Columna':<10}{'Token':<30}{'Lexema'}")
     print("=" * 90)
 
     for token in token_stream.tokens:
@@ -112,7 +111,7 @@ def print_token_table(token_stream, lexer):
 
         token_name = get_token_name(lexer, token.type)
 
-        # No imprimir tokens de error aquí
+        # Los tokens de error ya se reportaron antes y no deben listarse aqui.
         if token_name in {
             "UNCLOSED_BLOCK_COMMENT",
             "INVALID_HASH_OPERATOR",
@@ -130,6 +129,7 @@ def print_token_table(token_stream, lexer):
 
 
 def main():
+    """Ejecuta el lexer sobre un archivo y muestra la tabla de tokens."""
 
     if len(sys.argv) != 2:
         sys.exit(1)

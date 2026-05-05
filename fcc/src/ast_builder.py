@@ -1,3 +1,5 @@
+"""Visitor que transforma el parse tree de ANTLR en el AST de FCC."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,6 +11,8 @@ GENERATED_PATH = PROJECT_ROOT / "generated" / "fcc" / "grammar"
 
 
 def load_generated_module(module_name: str):
+    """Carga un modulo generado por ANTLR desde la carpeta generated."""
+
     module_path = GENERATED_PATH / f"{module_name}.py"
 
     if not module_path.exists():
@@ -61,30 +65,41 @@ from ast_nodes import (
 
 
 class ASTBuilder(FCCParserVisitor):
+    """Construye nodos AST propios a partir del arbol sintactico."""
 
     # UTILIDADES
 
     @staticmethod
     def make_location(ctx):
+        """Extrae linea y columna del token inicial del contexto."""
+
         return ctx.start.line, ctx.start.column
 
     # PROGRAMA
 
     def visitProgram(self, ctx):
+        """Construye el nodo raiz del programa."""
+
         line, column = self.make_location(ctx)
         declarations = [self.visit(child) for child in ctx.topLevelDecl()]
         return ProgramNode(declarations=declarations, line=line, column=column)
 
     def visitTopLevelDecl(self, ctx):
+        """Delegada simple para declaraciones de alto nivel."""
+
         return self.visitChildren(ctx)
 
     def visitImportStmt(self, ctx):
+        """Convierte una sentencia traigase en un ImportNode."""
+
         line, column = self.make_location(ctx)
         raw_path = ctx.STRING_LITERAL().getText()
         path = raw_path[1:-1]
         return ImportNode(path=path, line=line, column=column)
 
     def visitSecureAnnotation(self, ctx):
+        """Construye la anotacion @secure asociada a una funcion."""
+
         line, column = self.make_location(ctx)
         return SecureAnnotationNode(
             value=ctx.HEX_LITERAL().getText(),
@@ -93,12 +108,16 @@ class ASTBuilder(FCCParserVisitor):
         )
 
     def visitSecureFunctionDecl(self, ctx):
+        """Adjunta la anotacion secure al nodo de funcion correspondiente."""
+
         secure_node = self.visit(ctx.secureAnnotation())
         function_node = self.visit(ctx.functionDecl())
         function_node.secure = secure_node
         return function_node
 
     def visitFunctionDecl(self, ctx):
+        """Construye la declaracion completa de una funcion."""
+
         line, column = self.make_location(ctx)
 
         return_type = ctx.typeRule().getText()
@@ -120,9 +139,13 @@ class ASTBuilder(FCCParserVisitor):
         )
 
     def visitParameterList(self, ctx):
+        """Visita todos los parametros de una firma."""
+
         return [self.visit(param) for param in ctx.parameter()]
 
     def visitParameter(self, ctx):
+        """Construye un parametro formal."""
+
         line, column = self.make_location(ctx)
         return ParameterNode(
             param_type=ctx.typeRule().getText(),
@@ -134,14 +157,20 @@ class ASTBuilder(FCCParserVisitor):
     # BLOQUES Y SENTENCIAS
 
     def visitBlock(self, ctx):
+        """Construye un bloque con su lista de sentencias."""
+
         line, column = self.make_location(ctx)
         statements = [self.visit(stmt) for stmt in ctx.statement()]
         return BlockNode(statements=statements, line=line, column=column)
 
     def visitStatement(self, ctx):
+        """Delegada simple para una sentencia individual."""
+
         return self.visitChildren(ctx)
 
     def visitVarDecl(self, ctx):
+        """Construye una declaracion de variable terminada en punto y coma."""
+
         line, column = self.make_location(ctx)
         return VarDeclNode(
             var_type=ctx.typeRule().getText(),
@@ -151,6 +180,8 @@ class ASTBuilder(FCCParserVisitor):
         )
 
     def visitVarDeclNoSemi(self, ctx):
+        """Construye una declaracion de variable sin ';' final."""
+
         line, column = self.make_location(ctx)
         return VarDeclNode(
             var_type=ctx.typeRule().getText(),
@@ -160,9 +191,13 @@ class ASTBuilder(FCCParserVisitor):
         )
 
     def visitVariableDeclaratorList(self, ctx):
+        """Convierte una lista de declaradores en nodos AST."""
+
         return [self.visit(decl) for decl in ctx.variableDeclarator()]
 
     def visitVariableDeclarator(self, ctx):
+        """Construye un declarador con dimensiones e inicializador opcional."""
+
         line, column = self.make_location(ctx)
 
         dimensions = []
@@ -185,12 +220,18 @@ class ASTBuilder(FCCParserVisitor):
         )
 
     def visitInitializer(self, ctx):
+        """Reenvia al visitor de expresiones para inicializadores."""
+
         return self.visit(ctx.expression())
 
     def visitAssignmentStmt(self, ctx):
+        """Reenvia a la construccion de la asignacion subyacente."""
+
         return self.visit(ctx.assignment())
 
     def visitAssignment(self, ctx):
+        """Construye una asignacion simple o compuesta."""
+
         line, column = self.make_location(ctx)
         return AssignmentNode(
             target=self.visit(ctx.assignable()),
@@ -201,19 +242,27 @@ class ASTBuilder(FCCParserVisitor):
         )
 
     def visitReturnStmt(self, ctx):
+        """Construye una sentencia ret con valor opcional."""
+
         line, column = self.make_location(ctx)
         value = self.visit(ctx.expression()) if ctx.expression() else None
         return ReturnNode(value=value, line=line, column=column)
 
     def visitContinueStmt(self, ctx):
+        """Construye una sentencia continue."""
+
         line, column = self.make_location(ctx)
         return ContinueNode(line=line, column=column)
 
     def visitBreakStmt(self, ctx):
+        """Construye una sentencia break."""
+
         line, column = self.make_location(ctx)
         return BreakNode(line=line, column=column)
 
     def visitExprStmt(self, ctx):
+        """Envuelve una expresion usada como sentencia."""
+
         line, column = self.make_location(ctx)
         return ExpressionStmtNode(
             expression=self.visit(ctx.expression()),
@@ -224,17 +273,19 @@ class ASTBuilder(FCCParserVisitor):
     # CONTROL DE FLUJO
 
     def visitIfStmt(self, ctx):
+        """Construye un if con ramas elif y else opcionales."""
+
         line, column = self.make_location(ctx)
 
         condition = self.visit(ctx.expression())
 
-        # el bloque principal del if
+        # El primer bloque corresponde al cuerpo principal del if.
         then_block = self.visit(ctx.block())
 
-        # ramas elif
+        # Las ramas elif se visitan en orden de aparicion.
         elif_branches = [self.visit(branch) for branch in ctx.elifBranch()]
 
-        # rama else
+        # La rama else es opcional.
         else_block = None
         if ctx.elseBranch():
             else_block = self.visit(ctx.elseBranch())
@@ -249,6 +300,8 @@ class ASTBuilder(FCCParserVisitor):
         )
 
     def visitElifBranch(self, ctx):
+        """Construye una rama elif intermedia."""
+
         line, column = self.make_location(ctx)
         return ElifNode(
             condition=self.visit(ctx.expression()),
@@ -258,9 +311,13 @@ class ASTBuilder(FCCParserVisitor):
         )
 
     def visitElseBranch(self, ctx):
+        """Devuelve directamente el bloque de la rama else."""
+
         return self.visit(ctx.block())
 
     def visitWhileStmt(self, ctx):
+        """Construye un ciclo while."""
+
         line, column = self.make_location(ctx)
         return WhileNode(
             condition=self.visit(ctx.expression()),
@@ -270,6 +327,8 @@ class ASTBuilder(FCCParserVisitor):
         )
 
     def visitForStmt(self, ctx):
+        """Construye un ciclo for segun la sintaxis definida por el lenguaje."""
+
         line, column = self.make_location(ctx)
 
         initializer = self.visit(ctx.forInitializer()) if ctx.forInitializer() else None
@@ -287,20 +346,30 @@ class ASTBuilder(FCCParserVisitor):
         )
 
     def visitForInitializer(self, ctx):
+        """Delegada para el inicializador del for."""
+
         return self.visitChildren(ctx)
 
     def visitForIncrement(self, ctx):
+        """Delegada para la actualizacion del for."""
+
         return self.visitChildren(ctx)
 
     def visitForCondition(self, ctx):
+        """Delegada para la condicion del for."""
+
         return self.visitChildren(ctx)
 
     # EXPRESIONES
 
     def visitExpression(self, ctx):
+        """Punto de entrada general para expresiones."""
+
         return self.visitChildren(ctx)
 
     def _visit_left_associative_binary(self, ctx, next_rule_getter):
+        """Construye una cadena binaria asociativa por la izquierda."""
+
         nodes = [self.visit(child) for child in next_rule_getter(ctx)]
         if len(nodes) == 1:
             return nodes[0]
@@ -324,30 +393,48 @@ class ASTBuilder(FCCParserVisitor):
         return current
 
     def visitBitwiseOrExpression(self, ctx):
+        """Construye expresiones con operador bitwise OR."""
+
         return self._build_binary_chain(ctx, ctx.bitwiseXorExpression())
 
     def visitBitwiseXorExpression(self, ctx):
+        """Construye expresiones con operador bitwise XOR."""
+
         return self._build_binary_chain(ctx, ctx.bitwiseAndExpression())
 
     def visitBitwiseAndExpression(self, ctx):
+        """Construye expresiones con operador bitwise AND."""
+
         return self._build_binary_chain(ctx, ctx.equalityExpression())
 
     def visitEqualityExpression(self, ctx):
+        """Construye expresiones de igualdad y desigualdad."""
+
         return self._build_binary_chain(ctx, ctx.relationalExpression())
 
     def visitRelationalExpression(self, ctx):
+        """Construye comparaciones relacionales."""
+
         return self._build_binary_chain(ctx, ctx.shiftExpression())
 
     def visitShiftExpression(self, ctx):
+        """Construye desplazamientos bit a bit."""
+
         return self._build_binary_chain(ctx, ctx.additiveExpression())
 
     def visitAdditiveExpression(self, ctx):
+        """Construye sumas y restas."""
+
         return self._build_binary_chain(ctx, ctx.multiplicativeExpression())
 
     def visitMultiplicativeExpression(self, ctx):
+        """Construye multiplicaciones, divisiones y modulos."""
+
         return self._build_binary_chain(ctx, ctx.unaryExpression())
 
     def _build_binary_chain(self, ctx, subexpressions):
+        """Arma un arbol binario respetando el orden de la regla visitada."""
+
         nodes = [self.visit(expr) for expr in subexpressions]
         if len(nodes) == 1:
             return nodes[0]
@@ -369,6 +456,8 @@ class ASTBuilder(FCCParserVisitor):
         return current
 
     def visitUnaryExpression(self, ctx):
+        """Construye una expresion unaria o delega al postfix correspondiente."""
+
         line, column = self.make_location(ctx)
 
         if ctx.postfixExpression():
@@ -385,6 +474,8 @@ class ASTBuilder(FCCParserVisitor):
         )
 
     def visitPostfixExpression(self, ctx):
+        """Encadena llamadas, indexaciones y accesos a miembros."""
+
         current = self.visit(ctx.primary())
 
         for suffix in ctx.postfixSuffix():
@@ -419,9 +510,13 @@ class ASTBuilder(FCCParserVisitor):
         return current
 
     def visitArgumentList(self, ctx):
+        """Construye la lista de argumentos reales de una llamada."""
+
         return [self.visit(expr) for expr in ctx.expression()]
 
     def visitPrimary(self, ctx):
+        """Construye un identificador, literal o expresion parentizada."""
+
         line, column = self.make_location(ctx)
 
         if ctx.IDENTIFIER():
@@ -444,6 +539,8 @@ class ASTBuilder(FCCParserVisitor):
         return self.visit(ctx.expression())
 
     def visitLiteral(self, ctx):
+        """Construye el literal concreto segun el token reconocido."""
+
         line, column = self.make_location(ctx)
 
         if ctx.REAL_LITERAL():
